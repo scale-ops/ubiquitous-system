@@ -1,0 +1,44 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #f6f7f9;
+  color: #1c1f23;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 32px 20px 80px; }
+h1 { margin: 0 0 4px; }
+h4 { margin: 8px 0 4px; }
+.muted { color: #6b7280; }
+.small { font-size: 13px; }
+.error { color: #b42318; background: #fef3f2; padding: 12px; border-radius: 8px; }
+.card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 20px; margin: 16px 0; }
+.controls { display: flex; gap: 16px; align-items: end; flex-wrap: wrap; }
+label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; }
+select, input { font: inherit; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; min-width: 220px; }
+button, .actions a {
+  font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #d1d5db;
+  background: #fff; cursor: pointer; color: inherit; text-decoration: none;
+}
+button:disabled { opacity: 0.6; cursor: default; }
+button.primary { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 600; }
+progress { width: 100%; height: 12px; }
+details summary { cursor: pointer; font-weight: 600; }
+.pre { white-space: pre-wrap; line-height: 1.5; margin-top: 12px; }
+.review { background: #f9fafb; border-radius: 8px; padding: 12px 16px; }
+.toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { border-radius: 999px; padding: 6px 12px; font-size: 14px; }
+.chip.active { background: #1c1f23; color: #fff; border-color: #1c1f23; }
+table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #eef0f3; vertical-align: top; }
+th { color: #6b7280; font-weight: 600; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover { background: #f9fafb; }
+tr.details td { background: #fcfcfd; }
+.badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.badge.good { background: #dcfce7; color: #166534; }
+.badge.ok { background: #fef9c3; color: #854d0e; }
+.badge.low { background: #f3f4f6; color: #4b5563; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid ul { margin: 0; padding-left: 18px; }
+.actions { display: flex; gap: 10px; margin: 8px 0; }
