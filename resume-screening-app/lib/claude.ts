@@ -7,13 +7,14 @@ import type { Candidate } from "./airtable";
 
 const client = new Anthropic();
 
-const MODEL = "claude-opus-5";
+// Override with CLAUDE_MODEL, e.g. "anthropic/claude-opus-5" when routing through Vercel AI Gateway.
+const MODEL = process.env.CLAUDE_MODEL || "claude-opus-5";
 
 // If Claude declines a request, the API automatically retries it on a fallback model.
-const FALLBACK: { betas: Anthropic.Beta.AnthropicBeta[]; fallbacks: "default" } = {
-  betas: ["server-side-fallback-2026-07-01"],
-  fallbacks: "default",
-};
+// Skipped when ANTHROPIC_BASE_URL points at a gateway, which may not support this beta.
+const FALLBACK: { betas?: Anthropic.Beta.AnthropicBeta[]; fallbacks?: "default" } = process.env.ANTHROPIC_BASE_URL
+  ? {}
+  : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" };
 
 const SYSTEM = `You help a recruiting team find the best-fit candidates for open roles.
 Judge candidates only on job-relevant qualifications: experience, skills, education, and accomplishments.
