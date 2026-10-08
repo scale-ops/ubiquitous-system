@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support Metrics (mockup) – PH Support</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#EEF3F4; --surface:#FFFFFF; --ink:#12272C; --muted:#566B71; --line:#D0DCDF;
+  --teal:#0F6E73; --teal-dark:#0A4C50; --teal-soft:#CDE5E6;
+  --amber:#A85F00; --red:#B3332D; --green:#2B7A4B;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 "Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif}
+button,summary,[tabindex]{cursor:pointer}
+button:focus-visible,summary:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--teal);outline-offset:2px}
+
+.top{position:sticky;top:0;z-index:5;background:rgba(238,243,244,.95);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.top-in{max-width:1120px;margin:0 auto;padding:12px 24px;display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.brand{display:flex;flex-direction:column}
+.brand h1{font-size:20px;line-height:1.2;margin:0}
+.brand span{font-size:13px;color:var(--muted)}
+.controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.badge{font-size:13px;color:var(--teal-dark);background:var(--teal-soft);padding:4px 10px;border-radius:6px}
+.seg{display:inline-flex;border:1.5px solid var(--ink);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:7px 18px;font:inherit;color:var(--ink)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff}
+
+main{max-width:1120px;margin:0 auto;padding:32px 24px 72px}
+
+.lead{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:48px;padding-bottom:36px}
+.lead h2{font-size:15px;font-weight:700;margin:0 0 8px;color:var(--muted)}
+.story{font-size:22px;line-height:1.45;margin:0 0 16px;max-width:60ch}
+.copy{font:inherit;font-size:14px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);border-radius:8px;padding:7px 14px}
+.copy:hover{background:var(--ink);color:#fff}
+.watch ul{list-style:none;margin:0;padding:0}
+.watch li{display:grid;grid-template-columns:14px 1fr;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.watch li:first-child{border-top:0}
+.dot{width:12px;height:12px;border-radius:50%;margin-top:6px}
+.dot.red{background:var(--red)} .dot.amber{background:var(--amber)} .dot.green{background:var(--green)}
+.watch b{display:block}
+.watch p{margin:0;color:var(--muted);font-size:15px}
+.watch a{color:var(--teal-dark);font-size:14px}
+
+.band{display:grid;grid-template-columns:300px minmax(0,1fr);gap:40px;border-top:2px solid var(--ink);padding:26px 0 34px}
+.band h2{font-size:20px;margin:0 0 6px}
+.big{font-size:56px;line-height:1;font-weight:700;margin:6px 0 4px;letter-spacing:-.02em}
+.big small{display:block;font-size:15px;font-weight:400;color:var(--muted);letter-spacing:0;margin-top:6px}
+.delta{margin:10px 0 2px;font-weight:700}
+.delta.good{color:var(--green)} .delta.bad{color:var(--red)} .delta.flat{color:var(--muted)}
+.sub{margin:0 0 12px}
+.src{font-size:13px;color:var(--muted);margin:0 0 10px}
+details{font-size:14px;color:var(--muted)}
+details summary{color:var(--teal-dark)}
+details p{margin:8px 0 0}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px 12px}
+.readout{margin:0 0 6px;font-weight:700;min-height:1.5em}
+.plot svg{width:100%;height:auto;display:block}
+.grid{stroke:var(--line);stroke-width:1}
+.ax{font-size:11px;fill:var(--muted)}
+.bar{fill:var(--teal-soft)}
+.bar.last{fill:var(--teal)}
+.col:hover .bar,.col:focus .bar{fill:var(--teal)}
+.col:focus{outline:none}
+.col:focus .hit{stroke:var(--teal);stroke-width:2;fill:rgba(15,110,115,.06)}
+.hit{fill:transparent;stroke:transparent}
+.ln{fill:none;stroke:var(--ink);stroke-width:2.25}
+.pt{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.legend{display:flex;gap:18px;font-size:13px;color:var(--muted);margin:8px 0 0;flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:10px;margin-right:6px;vertical-align:-1px;border-radius:2px}
+.legend i.l{height:0;border-top:2.5px solid var(--ink);border-radius:0;width:16px;vertical-align:3px}
+.note{margin:10px 0 0;font-size:14px;color:var(--amber)}
+.note:empty{display:none}
+
+.sec-title{border-top:2px solid var(--ink);padding-top:26px}
+.sec-title h2{font-size:20px;margin:0 0 4px}
+.sec-title p{margin:0 0 18px;color:var(--muted);max-width:70ch}
+.team{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:40px;padding-bottom:36px}
+.rows{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 18px}
+.row{display:grid;grid-template-columns:110px 1fr 120px;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:15px}
+.row:first-child{border-top:0}
+.track{height:12px;background:var(--teal-soft);border-radius:6px;overflow:hidden}
+.track span{display:block;height:100%;background:var(--teal)}
+.row em{font-style:normal;color:var(--muted);font-size:14px;text-align:right}
+.ph{font-size:14px;color:var(--amber);margin:10px 0 0}
+.health{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.health li{display:grid;grid-template-columns:14px 1fr;gap:10px;padding:14px 18px;border-top:1px solid var(--line)}
+.health li:first-child{border-top:0}
+.health b{display:block}
+.health p{margin:2px 0 0;color:var(--muted);font-size:15px}
+.foot{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:14px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .15s}
+.toast.on{opacity:1}
+
+@media (max-width:860px){
+  .lead,.team{grid-template-columns:1fr;gap:28px}
+  .band{grid-template-columns:1fr;gap:18px}
+  .big{font-size:46px}
+  .row{grid-template-columns:90px 1fr 96px}
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <h1>Support Metrics</h1>
+      <span>PH Support team · Contractor Operations</span>
+    </div>
+    <div class="controls">
+      <span class="badge">Mockup · real figures through the week of Sep 28</span>
+      <div class="seg" role="group" aria-label="Time view">
+        <button type="button" id="btn-week" aria-pressed="true">Weekly</button>
+        <button type="button" id="btn-month" aria-pressed="false">Monthly</button>
+        <button type="button" id="btn-quarter" aria-pressed="false">Quarterly</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="lead" aria-labelledby="lead-h">
+    <div>
+      <h2 id="lead-h">The week of Sep 28, in plain language</h2>
+      <p class="story" id="story"></p>
+      <button type="button" class="copy" id="copy">Copy this summary</button>
+    </div>
+    <div class="watch" aria-labelledby="watch-h">
+      <h2 id="watch-h">What needs a look</h2>
+      <ul id="watchlist"></ul>
+    </div>
+  </section>
+
+  <div id="bands"></div>
+
+  <section class="sec-title" aria-labelledby="team-h">
+    <h2 id="team-h">Who is resolving what</h2>
+    <p>Tickets solved and typical time to resolve, per teammate. This view answers "what is the team doing" without anyone building a report.</p>
+  </section>
+  <section class="team">
+    <div>
+      <div class="rows" id="teamrows"></div>
+      <p class="ph">Placeholder values. The final version reads the Solved By Stats tab, which already totals each person's tickets and average resolution time.</p>
+    </div>
+    <div>
+      <ul class="health" id="health"></ul>
+    </div>
+  </section>
+
+  <p class="foot">Figures come from the Weekly Ticket Count tab, the IPA Request Count tab and the monthly report sheet your manager keeps by hand. The live version computes every number straight from the source tabs, so the Monday report builds itself.</p>
+</main>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const W9 = ['Aug 3','Aug 10','Aug 17','Aug 24','Aug 31','Sep 7','Sep 14','Sep 21','Sep 28'];
+const M5 = ['May','Jun','Jul','Aug','Sep'];
+const Q6 = ['Q2 2025','Q3 2025','Q4 2025','Q1 2026','Q2 2026','Q3 2026'];
+const Q2 = ['Q2 2026','Q3 2026'];
+const pct = v => v.toFixed(1) + '%';
+const mins = v => Math.round(v) + ' min';
+
+const lenses = [
+  {
+    id:'issue', name:'Issue reports',
+    headline:'249', unit:'tickets this week',
+    delta:'▲ 35% vs the week before (184)', cls:'flat',
+    sub:'98.0% resolved. Down from 99.8% five weeks ago.',
+    src:'Source: Issue Report Raw V2 (Automated), 10,227 tickets',
+    calc:'Resolved tickets divided by tickets created that week, using the Resolved? field. Weeks start on Monday, Philippine time.',
+    weekly:{labels:W9, prefix:'Week of ', bars:[373,415,599,620,466,298,264,184,249], line:[99.46,99.76,98.83,98.06,99.79,98.99,98.48,97.28,97.99],
+            barName:'Tickets', lineName:'Resolved', lineFmt:pct, lineMin:96, lineMax:100},
+    monthly:{labels:M5, prefix:'', bars:[1148,875,1266,1924,1461], line:[98.54,98.07,99.06,99.03,97.99],
+            barName:'Tickets', lineName:'Resolved', lineFmt:pct, lineMin:96, lineMax:100},
+    quarterly:{labels:Q6, prefix:'', bars:[14389,6991,4111,3609,3520,4865], line:[null,null,null,null,98.34,98.71],
+            barName:'Tickets', lineName:'Resolved', lineFmt:pct, lineMin:96, lineMax:100},
+    qnote:'Q3 2026 volume is 38% above Q2 2026, driven by the August spike. Volume is still about a third of Q2 2025. The resolved rate is only recorded from May 2026, so Q2 2026 covers May and June. Quarters count whole Monday-start weeks, so they can differ slightly from the monthly view.'
+  },
+  {
+    id:'ipa', name:'IPA / RFA requests',
+    headline:'110', unit:'requests this week',
+    delta:'▼ 2.2 points in resolution since Aug 24', cls:'bad',
+    sub:'96.4% resolved, 4 still pending. Pending has been 4 or more for four weeks.',
+    src:'Source: IPA - RFA Request Data V2 (new, syncs every 3 days)',
+    calc:'Resolved requests divided by requests created that week. Pending requests count as open until they are decided.',
+    weekly:{labels:W9, prefix:'Week of ', bars:[117,160,267,348,204,122,122,100,110], line:[98.29,100,98.5,98.56,96.57,97.54,95.9,96.0,96.36],
+            barName:'Requests', lineName:'Resolved', lineFmt:pct, lineMin:94, lineMax:100},
+    monthly:{labels:M5, prefix:'', bars:[60,372,473,892,658], line:[100,97.85,99.37,98.83,96.47],
+            barName:'Requests', lineName:'Resolved', lineFmt:pct, lineMin:94, lineMax:100},
+    quarterly:{labels:Q2, prefix:'', bars:[432,2023], line:[98.15,98.19],
+            barName:'Requests', lineName:'Resolved', lineFmt:pct, lineMin:94, lineMax:100},
+    qnote:'Q3 2026 had 4.7 times the requests of Q2 2026, but Q2 only covers May 28 onward, when the data begins. The quarterly resolved rate hides the slide inside Q3: 99.4% in July, 98.8% in August, 96.5% in September.'
+  },
+  {
+    id:'transitions', name:'QMO / QMA transitions',
+    headline:'30', unit:'tickets this week',
+    delta:'▲ 6 hours to resolve, up from 31 minutes', cls:'bad',
+    sub:'All resolved, but the average time to resolve is about 11 times what it was two weeks ago.',
+    src:'Source: Launchpad Transition Tickets',
+    calc:'Average of Time Resolved minus Time Started, in minutes, for tickets started that week. Earlier weeks have no time recorded yet.',
+    weekly:{labels:W9, prefix:'Week of ', bars:[0,79,86,50,70,62,55,27,30], line:[null,null,null,null,null,null,31,249,352],
+            barName:'Tickets', lineName:'Avg time to resolve', lineFmt:mins, lineMin:0, lineMax:400},
+    monthly:{labels:M5, prefix:'', bars:[0,0,163,190,244], line:[null,null,null,null,210.7],
+            barName:'Tickets', lineName:'Avg time to resolve', lineFmt:mins, lineMin:0, lineMax:400},
+    quarterly:{labels:Q2, prefix:'', bars:[0,597], line:[null,210.7],
+            barName:'Tickets', lineName:'Avg time to resolve', lineFmt:mins, lineMin:0, lineMax:400},
+    qnote:'No transition tickets are recorded before July. Time to resolve is only recorded for the last three weeks of September, so the 211 minutes is an early reading, not a quarter average.'
+  },
+  {
+    id:'csat', name:'Customer satisfaction (CSAT)',
+    headline:'100%', unit:'satisfied',
+    delta:'Same score every week since May', cls:'flat',
+    sub:'A perfect score for 20 weeks in a row usually means few people are answering.',
+    src:'Source: Issue Report Raw V2, Support Rating field',
+    calc:'Support Rating converted to a percentage. The live version also shows how many people answered, so the score can be trusted.',
+    note:'Add the number of survey responses next to this score before management relies on it.',
+    weekly:{labels:W9, prefix:'Week of ', bars:null, line:[100,100,100,100,100,100,100,100,100],
+            barName:'', lineName:'CSAT', lineFmt:pct, lineMin:80, lineMax:100},
+    monthly:{labels:M5, prefix:'', bars:null, line:[100,100,100,100,100],
+            barName:'', lineName:'CSAT', lineFmt:pct, lineMin:80, lineMax:100},
+    quarterly:{labels:Q2, prefix:'', bars:null, line:[100,100],
+            barName:'', lineName:'CSAT', lineFmt:pct, lineMin:80, lineMax:100},
+    qnote:''
+  }
+];
+
+const stories = {
+  weekly:{
+    title:'The week of Sep 28, in plain language',
+    text:'Support handled 249 issue reports (98.0% resolved), 110 IPA / RFA requests (96.4% resolved) and 30 QMO / QMA transition tickets. Volume is well below the Aug 24 peak of 620 issue reports. Two speed signals are moving the wrong way: IPA / RFA resolution has slipped about 2 points since August, and transition tickets now take about 6 hours on average, up from 31 minutes two weeks earlier. CSAT is a flat 100%, which needs a response count before it counts as evidence.'
+  },
+  monthly:{
+    title:'September, in plain language',
+    text:'In September, support handled 1,461 issue reports (98.0% resolved), 658 IPA / RFA requests (96.5% resolved) and 244 QMO / QMA transition tickets. Issue report and IPA / RFA volume are both down from August, but resolution is lower in both: 98.0% against 99.0% for issue reports, and 96.5% against 98.8% for IPA / RFA. Transition tickets rose 28% on August, and time to resolve is now measured at about 3.5 hours. CSAT is still a flat 100%.'
+  },
+  quarterly:{
+    title:'Q3 2026, in plain language',
+    text:'In Q3 2026, support handled 4,865 issue reports (98.7% resolved), 2,023 IPA / RFA requests (98.2% resolved) and 597 QMO / QMA transition tickets. Issue report volume is 38% above Q2 2026 because of the August spike, but still about a third of Q2 2025. The quarterly IPA / RFA rate looks healthy and hides a slide from 99.4% in July to 96.5% in September. CSAT is a flat 100%.'
+  }
+};
+
+const watches = {
+  weekly: [
+  {c:'red',   t:'Transition tickets are slower',        d:'Average time to resolve went from 31 to 249 to 352 minutes over three weeks while volume fell from 55 to 27 to 30.', to:'transitions'},
+  {c:'red',   t:'IPA / RFA resolution is easing',       d:'98.8% average in August, 96.5% in September, with 4 or more requests left pending each week since Aug 31.', to:'ipa'},
+  {c:'amber', t:'Issue reports resolve a little less',  d:'99.8% on Aug 31 and 98.0% now, even though volume is down 60% from the Aug 24 peak.', to:'issue'},
+  {c:'amber', t:'CSAT has no response count',           d:'100% every week since May. Add how many people answered.', to:'csat'}
+],
+  monthly: [
+    {c:'red',   t:'IPA / RFA resolution fell 2.4 points', d:'98.8% in August, 96.5% in September.', to:'ipa'},
+    {c:'red',   t:'Transition tickets are slower',        d:'Time to resolve reached 352 minutes in the last week of September, up from 31 two weeks earlier.', to:'transitions'},
+    {c:'amber', t:'Issue reports resolve a little less',  d:'98.0% in September against 99.0% in August.', to:'issue'},
+    {c:'amber', t:'CSAT has no response count',           d:'100% every month since May. Add how many people answered.', to:'csat'}
+  ],
+  quarterly: [
+    {c:'amber', t:'The IPA / RFA quarter hides a slide',  d:'98.2% for Q3 overall, but 99.4% in July, 98.8% in August and 96.5% in September.', to:'ipa'},
+    {c:'amber', t:'Issue report volume is back up',       d:'4,865 in Q3 2026, 38% above Q2 2026, driven by August.', to:'issue'},
+    {c:'red',   t:'Transition tickets are slower',        d:'Time to resolve reached 352 minutes in the last week of September, up from 31 two weeks earlier.', to:'transitions'},
+    {c:'amber', t:'CSAT has no response count',           d:'100% in both quarters. Add how many people answered.', to:'csat'}
+  ]
+};
+
+const team = [
+  {n:'Teammate 1', solved:412, m:38},
+  {n:'Teammate 2', solved:388, m:41},
+  {n:'Teammate 3', solved:301, m:52},
+  {n:'Teammate 4', solved:276, m:47},
+  {n:'Teammate 5', solved:190, m:66},
+  {n:'Teammate 6', solved:122, m:71}
+];
+
+const health = [
+  {c:'red',   t:'Ticket Status says Open on 8,831 of 10,227 tickets', d:'The Resolved? field says 10,214 are resolved and 13 are open. The dashboard uses Resolved? so the numbers match reality.'},
+  {c:'amber', t:'The Launchpad copy is a snapshot',                   d:'It holds 72 tickets, all created on Sep 28. The live Launchpad Transition Tickets tab holds 106. The dashboard should read the live tab.'},
+  {c:'amber', t:'Transition counts do not match yet',                 d:'The manager sheet shows 244 transition tickets for September. The Launchpad tab holds 106 in total. We need to confirm where those counts come from.'},
+  {c:'amber', t:'Weekly tabs are typed in by hand',                   d:'Weekly Ticket Count and IPA Request Count are updated manually. Replacing them with computed views removes the weekly report work.'}
+];
+
+
+const views = {
+  issue:{
+    weekly:   {headline:'249',   unit:'tickets this week',      delta:'▲ 35% vs the week before (184)',        cls:'flat', sub:'98.0% resolved. Down from 99.8% five weeks ago.'},
+    monthly:  {headline:'1,461', unit:'tickets in September',   delta:'▼ 24% vs August (1,924)',               cls:'flat', sub:'98.0% resolved, down from 99.0% in August.'},
+    quarterly:{headline:'4,865', unit:'tickets in Q3 2026',     delta:'▲ 38% vs Q2 2026 (3,520)',              cls:'flat', sub:'98.7% resolved. Q2 was 98.3%, counting May and June only.'}
+  },
+  ipa:{
+    weekly:   {headline:'110',   unit:'requests this week',     delta:'▼ 2.2 points in resolution since Aug 24', cls:'bad', sub:'96.4% resolved, 4 still pending. Pending has been 4 or more for four weeks.'},
+    monthly:  {headline:'658',   unit:'requests in September',  delta:'▼ 2.4 points in resolution vs August',   cls:'bad', sub:'96.5% resolved. August was 98.8%. Requests are down 26% from August (892).'},
+    quarterly:{headline:'2,023', unit:'requests in Q3 2026',    delta:'▲ 4.7 times Q2, which starts May 28',    cls:'flat', sub:'98.2% resolved overall. September alone was 96.5%.'}
+  },
+  transitions:{
+    weekly:   {headline:'30',    unit:'tickets this week',      delta:'▲ 6 hours to resolve, up from 31 minutes', cls:'bad', sub:'All resolved, but the average time to resolve is about 11 times what it was two weeks ago.'},
+    monthly:  {headline:'244',   unit:'tickets in September',   delta:'▲ 28% vs August (190)',                   cls:'flat', sub:'About 3.5 hours on average to resolve, measured over the last three weeks only.'},
+    quarterly:{headline:'597',   unit:'tickets in Q3 2026',     delta:'▲ 163 in July, 190 in August, 244 in September', cls:'flat', sub:'None recorded before July. Time to resolve is only recorded from Sep 14.'}
+  },
+  csat:{
+    weekly:   {headline:'100%',  unit:'satisfied',              delta:'Same score every week since May',  cls:'flat', sub:'A perfect score for 20 weeks in a row usually means few people are answering.'},
+    monthly:  {headline:'100%',  unit:'satisfied',              delta:'Same score every month since May', cls:'flat', sub:'A perfect score for five months in a row usually means few people are answering.'},
+    quarterly:{headline:'100%',  unit:'satisfied',              delta:'Same score in both quarters',      cls:'flat', sub:'Two perfect quarters in a row usually mean few people are answering.'}
+  }
+};
+
+// ---------- chart ----------
+function niceStep(raw){
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const f = raw / p;
+  const nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+  return nf * p;
+}
+
+function drawChart(host, d, readoutEl){
+  const n = d.labels.length;
+  const W = 720, H = 250, m = {l:46, r:56, t:14, b:30};
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const step = iw / n;
+  const bw = Math.min(46, step * 0.58);
+  let maxB = 1;
+  if (d.bars) { const u = niceStep(Math.max(...d.bars) / 4); maxB = u * 4; }
+  const yB = v => m.t + ih - ih * (v / maxB);
+  const yL = v => m.t + ih - ih * ((v - d.lineMin) / (d.lineMax - d.lineMin));
+  let s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + d.lineName + (d.bars ? ' and ' + d.barName.toLowerCase() : '') + ' by ' + d.period + '">';
+
+  for (let i = 0; i <= 4; i++){
+    const y = m.t + ih - ih * i / 4;
+    s += '<line class="grid" x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + y + '" y2="' + y + '"/>';
+    if (d.bars) s += '<text class="ax" x="' + (m.l - 8) + '" y="' + (y + 4) + '" text-anchor="end">' + Math.round(maxB * i / 4) + '</text>';
+    const lv = d.lineMin + (d.lineMax - d.lineMin) * i / 4;
+    s += '<text class="ax" x="' + (W - m.r + 8) + '" y="' + (y + 4) + '">' + (d.lineFmt === pct ? Math.round(lv) + '%' : Math.round(lv)) + '</text>';
+  }
+
+  d.labels.forEach((lab, i) => {
+    const cx = m.l + step * i + step / 2;
+    const isLast = i === n - 1;
+    s += '<g class="col" data-i="' + i + '" tabindex="0" role="img" aria-label="' + lab + '">';
+    s += '<rect class="hit" x="' + (cx - step / 2) + '" y="' + m.t + '" width="' + step + '" height="' + ih + '"/>';
+    if (d.bars && d.bars[i] > 0) s += '<rect class="bar' + (isLast ? ' last' : '') + '" x="' + (cx - bw / 2) + '" y="' + yB(d.bars[i]) + '" width="' + bw + '" height="' + (m.t + ih - yB(d.bars[i])) + '" rx="2"/>';
+    s += '<text class="ax" x="' + cx + '" y="' + (H - 9) + '" text-anchor="middle">' + lab + '</text>';
+    s += '</g>';
+  });
+
+  // line (breaks on gaps)
+  let path = '', pen = false;
+  d.line.forEach((v, i) => {
+    const cx = m.l + step * i + step / 2;
+    if (v == null) { pen = false; return; }
+    path += (pen ? 'L' : 'M') + cx + ' ' + yL(v) + ' ';
+    pen = true;
+  });
+  s += '<path class="ln" d="' + path + '"/>';
+  d.line.forEach((v, i) => {
+    if (v == null) return;
+    const cx = m.l + step * i + step / 2;
+    s += '<circle class="pt" cx="' + cx + '" cy="' + yL(v) + '" r="3.6"/>';
+  });
+  s += '</svg>';
+  host.innerHTML = s;
+
+  const show = i => {
+    const parts = [d.prefix + d.labels[i]];
+    if (d.bars) parts.push(d.bars[i] + ' ' + d.barName.toLowerCase());
+    parts.push(d.line[i] == null ? d.lineName + ': not recorded yet' : d.lineName + ': ' + d.lineFmt(d.line[i]));
+    readoutEl.textContent = parts.join(' · ');
+  };
+  host.querySelectorAll('.col').forEach(g => {
+    const i = +g.dataset.i;
+    g.addEventListener('mouseenter', () => show(i));
+    g.addEventListener('focus', () => show(i));
+  });
+  show(n - 1);
+}
+
+// ---------- page ----------
+let mode = 'weekly';
+
+function renderBands(){
+  const root = document.getElementById('bands');
+  root.innerHTML = lenses.map(l => (
+    '<section class="band" id="' + l.id + '" aria-labelledby="h-' + l.id + '">' +
+      '<div>' +
+        '<h2 id="h-' + l.id + '">' + l.name + '</h2>' +
+        '<p class="big"></p>' +
+        '<p class="delta flat"></p>' +
+        '<p class="sub"></p>' +
+        '<p class="src">' + l.src + '</p>' +
+        '<details><summary>How it is calculated</summary><p>' + l.calc + '</p></details>' +
+      '</div>' +
+      '<div class="chartbox">' +
+        '<p class="readout" aria-live="polite"></p>' +
+        '<div class="plot"></div>' +
+        '<p class="legend">' +
+          (l.weekly.bars ? '<span><i style="background:var(--teal-soft)"></i>' + l.weekly.barName + '</span>' : '') +
+          '<span><i class="l"></i>' + l.weekly.lineName + '</span>' +
+        '</p>' +
+        '<p class="note"></p>' +
+      '</div>' +
+    '</section>'
+  )).join('');
+  drawAll();
+}
+
+function drawAll(){
+  document.querySelectorAll('.band').forEach((el, i) => {
+    const l = lenses[i];
+    const v = views[l.id][mode];
+    el.querySelector('.big').innerHTML = v.headline + '<small>' + v.unit + '</small>';
+    el.querySelector('.delta').className = 'delta ' + v.cls;
+    el.querySelector('.delta').textContent = v.delta;
+    el.querySelector('.sub').textContent = v.sub;
+    const period = mode === 'weekly' ? 'week' : mode === 'monthly' ? 'month' : 'quarter';
+    drawChart(el.querySelector('.plot'), Object.assign({period: period}, l[mode]), el.querySelector('.readout'));
+    el.querySelector('.note').textContent = [l.note, mode === 'quarterly' ? l.qnote : ''].filter(Boolean).join(' ');
+  });
+}
+
+function renderLead(){
+  document.getElementById('lead-h').textContent = stories[mode].title;
+  document.getElementById('story').textContent = stories[mode].text;
+  document.getElementById('watchlist').innerHTML = watches[mode].map(w => (
+    '<li><span class="dot ' + w.c + '" aria-hidden="true"></span><div><b>' + w.t + '</b><p>' + w.d + '</p><a href="#' + w.to + '">See the chart</a></div></li>'
+  )).join('');
+}
+
+function renderTeam(){
+  const max = Math.max(...team.map(t => t.solved));
+  document.getElementById('teamrows').innerHTML = team.map(t => (
+    '<div class="row"><span>' + t.n + '</span><div class="track" aria-hidden="true"><span style="width:' + Math.round(t.solved / max * 100) + '%"></span></div><em>' + t.solved + ' solved · ' + t.m + ' min</em></div>'
+  )).join('');
+}
+
+function renderHealth(){
+  document.getElementById('health').innerHTML =
+    '<li style="grid-template-columns:1fr"><div><b>Data checks before this goes live</b><p>Four things I found while reading the tabs.</p></div></li>' +
+    health.map(h => (
+      '<li><span class="dot ' + h.c + '" aria-hidden="true"></span><div><b>' + h.t + '</b><p>' + h.d + '</p></div></li>'
+    )).join('');
+}
+
+function setMode(m){
+  mode = m;
+  document.getElementById('btn-week').setAttribute('aria-pressed', m === 'weekly');
+  document.getElementById('btn-month').setAttribute('aria-pressed', m === 'monthly');
+  document.getElementById('btn-quarter').setAttribute('aria-pressed', m === 'quarterly');
+  renderLead();
+  drawAll();
+}
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('on');
+  setTimeout(() => t.classList.remove('on'), 1800);
+}
+
+document.getElementById('btn-week').addEventListener('click', () => setMode('weekly'));
+document.getElementById('btn-month').addEventListener('click', () => setMode('monthly'));
+document.getElementById('btn-quarter').addEventListener('click', () => setMode('quarterly'));
+document.getElementById('copy').addEventListener('click', () => {
+  const done = () => toast('Summary copied');
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(stories[mode].text).then(done, done);
+  else done();
+});
+
+renderLead(); renderBands(); renderTeam(); renderHealth();
+</script>
+</body>
+</html>

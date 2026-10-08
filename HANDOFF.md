@@ -1,215 +1,176 @@
-# Project Handoff: Contractor Ops Resume Screening
+# Support Metrics: handoff to Claude Code
 
-*Prepared October 2026 by Tammy Harris (with Claude). For whoever is taking over this project.*
-
----
-
-## 1. What this project is
-
-We recruit contractors for two roles and need to screen hundreds of candidates quickly:
-
-| Pool | Role | Location | Airtable table |
-|---|---|---|---|
-| **BDR** | Business Development Representative | USA (plus a few in Canada) | `BDR` (about 340 candidates) |
-| **WPC** | "CSM – Workplace Collection". Despite the name, this is **high-volume outbound phone sales** that signs businesses up as data-collection sites | Mexico City | `WPC` (444 candidates) |
-
-There are two parts to the project:
-
-1. **The Resume Screening app** (live on Vercel). You pick a job description and a candidate pool, and Claude scores every candidate 0–100 as Strong, Possible or Weak fit, with reasons. It's read-only against Airtable.
-2. **The budget and seniority check** (done directly in Airtable). For every **Strong fit** candidate, we flagged whether they are executive-level, or are likely to expect more pay than our budget.
+Project: **Support Metrics** dashboard for the PH Support team. Intended home: the `ubiquitous-system` repository, folder `support-metrics/`.
+Owner: Tammy (Contractor Operations, Scale AI).
+Status as of 2026-10-08: **mockup built and shared for review; no live data wiring yet.**
 
 ---
 
-## 2. Where everything lives
+## 1. Goal
 
-| What | Where |
-|---|---|
-| Live app | https://resume-screening-three-omega.vercel.app (password-protected, see section 4) |
-| Vercel project | https://vercel.com/scaleai/resume-screening (Scale Enterprise team) |
-| GitHub repo | https://github.com/scale-ops/ubiquitous-system (branch `main` is what's live) |
-| App code | `resume-screening-app/` folder in the repo |
-| Airtable base | https://airtable.com/appqmAg1Av6yheTUu (base ID `appqmAg1Av6yheTUu`) |
-| Pay-rate research | `pay-rate-benchmarks.pdf` / `.md` in the repo root |
-| App setup guide | `resume-screening-app/README.md` |
-| This document | `HANDOFF.md` in the repo root |
+Management says they lack good signals on what the PH Support team is doing. A new manager currently builds a report by hand each week and month (see `QM_Support_Internal_Report_Sheet.xlsx`). Tammy wants a **dashboard that replaces that manual report**, with Weekly, Monthly and Quarterly views.
 
----
+The dashboard answers, in about ten seconds: are we keeping up, are we getting faster or slower, and are people satisfied.
 
-## 3. Access the new owner needs (checklist)
+Four lenses, mirroring the manager's four report blocks:
 
-Ask for each of these on day one:
+1. **Issue reports** (volume, resolution rate)
+2. **IPA / RFA requests** (volume, resolution rate, pending)
+3. **QMO / QMA transitions** (volume, resolution rate, average time to resolve)
+4. **CSAT** (customer satisfaction)
 
-- [ ] **Airtable**: editor access to base `appqmAg1Av6yheTUu`
-- [ ] **Vercel**: member of the **Scale (Enterprise)** team, with access to the `resume-screening` project
-- [ ] **GitHub**: write access to `scale-ops/ubiquitous-system` (scale-ops is a GitHub Enterprise org)
-- [ ] **App password** (`APP_PASSWORD`): get it from Tammy. It's not written down anywhere in this document on purpose.
-- [ ] **AI Gateway key**: only if you need to rotate it. It's managed in Vercel → **AI Gateway → API Keys**.
-- [ ] **Airtable personal access token**: the app uses Tammy's token. **Before Tammy's access ends, create your own token and replace `AIRTABLE_TOKEN` in Vercel** (see section 4.4), or the app will stop working.
+Plus a "who is resolving what" team view and a data-checks panel.
 
----
+## 2. What exists today
 
-## 4. The Resume Screening app
-
-### 4.1 Daily use
-1. Open the live app link and log in. Use any username, plus the app password.
-2. Choose a **Job**. The list comes from the Airtable table `Job Description Links`, and each row needs a job description PDF attached.
-3. Choose a **Candidate pool** (`BDR` or `WPC`).
-4. Click **Find best fits**. A full pool takes about 5–10 minutes. Keep the tab open.
-5. Filter by **Strong / Possible / Weak fit** or search. Click a candidate for details, a link to their resume, or **Deep review with full resume** (Claude reads the resume PDF and writes a requirement checklist plus interview questions).
-6. Click **Download CSV** to share results.
-
-Results are saved **in your browser only**, not in Airtable, so a refresh doesn't lose them, but a teammate won't see your run.
-
-**Adding a job:** add a row to `Job Description Links` with the job name and the PDF attached, then refresh the app.
-**Adding candidates:** add rows to `BDR` or `WPC` as usual, then click **Re-run screening**.
-
-### 4.2 How it works (technical)
-- **Stack:** Next.js 16 (App Router), TypeScript, `@anthropic-ai/sdk`, deployed on Vercel.
-- **Login:** `proxy.ts` puts HTTP Basic auth on every page and API route, checking against `APP_PASSWORD`.
-- **Airtable reads:** `lib/airtable.ts` (REST API, read-only). The pool table names are listed in `POOLS`.
-- **Claude calls:** `lib/claude.ts`.
-  - `summarizeJob`: turns the job description PDF into a requirements list (once per job).
-  - `scoreCandidates`: scores batches of 20 candidates using their Airtable profile fields, with a structured JSON output.
-  - `deepReview`: reads one candidate's resume PDF in full.
-- **Batching:** `app/page.tsx` sends batches of 20, 3 at a time, so no request hits Vercel's time limit.
-- **API routes:** `app/api/` holds `jobs`, `candidates`, `job-summary`, `score`, `deep-review` and `resume`. The `resume` route fetches a fresh link each time, because Airtable file links expire after a few hours.
-- **Fairness guardrail:** the system prompt tells Claude to judge only job-relevant qualifications and never protected characteristics, and to ignore any instructions inside resumes.
-
-### 4.3 How Claude is reached: Vercel AI Gateway
-The app does **not** use a direct Anthropic API key. It goes through **Vercel's AI Gateway**, and usage is billed through Vercel. This was set up in October 2026:
-- `lib/claude.ts` reads the model name from `CLAUDE_MODEL` (default `claude-opus-5`).
-- When `ANTHROPIC_BASE_URL` is set (meaning the Gateway is in use), the app turns off the "server-side fallback" beta feature, because we couldn't confirm the Gateway supports it.
-- To switch to a direct Anthropic key later: delete `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and `CLAUDE_MODEL`, add `ANTHROPIC_API_KEY`, then redeploy. No code changes are needed.
-
-### 4.4 Environment variables (Vercel → resume-screening → Environment Variables)
-
-| Name | Value | Notes |
+| Item | Where | State |
 |---|---|---|
-| `AIRTABLE_TOKEN` | Airtable personal access token (`pat…`) | Needs scope `data.records:read` and access to the base. **Currently Tammy's; replace it with yours.** |
-| `AIRTABLE_BASE_ID` | `appqmAg1Av6yheTUu` | |
-| `APP_PASSWORD` | team password | Changing it logs everyone out |
-| `ANTHROPIC_BASE_URL` | `https://ai-gateway.vercel.sh` | Routes Claude calls through the AI Gateway |
-| `ANTHROPIC_AUTH_TOKEN` | AI Gateway API key | From Vercel → AI Gateway → API Keys |
-| `CLAUDE_MODEL` | `anthropic/claude-opus-5` | Gateway model names need the `anthropic/` prefix |
-| `AI_GATEWAY_API_KEY` | (pre-existing) | Not used by the app; harmless |
+| Dashboard mockup | `support-metrics/index.html` (one self-contained file, no libraries, Google Font only) | Done. All numbers are hard-coded constants. |
+| Redash to Airtable sync for IPA / RFA | Airtable base `appmxzCOba8T4t0YJ`, table `IPA - RFA Request Data V2` (`tblvKbQNw1aoeqlCm`), automation `wfl2mq5eT4n39mdeQ` | **Live, runs every 3 days at 09:00 UTC.** Tested: created 18, updated 5, unchanged 10. |
+| Manager's manual report | `QM_Support_Internal_Report_Sheet.xlsx` (sheets: Monthly Trend, August 2026, September 2026) | Reference only. Use it to check the live numbers. |
 
-**After you change any variable, you must redeploy:** go to **Deployments → ⋯ on the top deployment → Redeploy**.
+The mockup was checked by running its script against a stub DOM (all 12 charts build; clicking each button updates every number). **It has not been viewed in a real browser by the assistant.** Tammy was asked to confirm it looks right.
 
-### 4.5 Deploying changes
-- Vercel deploys automatically on every commit to `main`.
-- Vercel's **Root Directory** must stay set to `resume-screening-app`, because the app isn't at the top of the repo. Without it the build fails ("No Next.js version detected").
-- Make code changes either by uploading files through GitHub's website (**Add file → Upload files**, then commit to `main`) or through a Claude Code session once Claude's GitHub access is approved (see section 7).
+### The IPA / RFA sync (already built, do not rebuild)
 
-### 4.6 Costs
-- **Vercel and GitHub:** covered by Scale's Enterprise plans.
-- **Claude (through the AI Gateway):** pay per use. Scoring a full pool costs roughly $1–2, and a deep review a few cents. Check **Vercel → AI Gateway → Usage**.
+- Source: Redash query **313091** "IPA - RFA Request Data" on `https://redash.scale.com`. Owned by another person (Carlos Uy). Parameter `Date_Range` (date range, default `d_this_year`). Its own saved schedule expired 2026-06-28, so it does not refresh itself.
+- Target: `IPA - RFA Request Data V2`, 22 columns in query order, primary field `REQUEST_ID`. About 2,264 rows as of Oct 8. Data begins May 28, 2026.
+- Automation script (Airtable "Run script" action): finds the newest `CREATED_AT` already in V2, asks Redash only for that date through tomorrow, then creates new rows and updates changed ones, matched on `REQUEST_ID`. Never deletes. First run on an empty table loads `d_this_year`.
+- Redash API call that works: `POST /api/queries/313091/results` with body `{"parameters": {"Date_Range": {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}}, "max_age": 0}`, header `Authorization: Key <key>`, then poll `GET /api/jobs/<id>` until `status == 3`, then `GET /api/query_results/<query_result_id>`.
+- The Redash API key is stored as an **Airtable secret named `REDASH_API_KEY`** (id `eachffdXPCpMrYeYf`). **Never put the key in the repo, in chat, or in client-side code.**
+- Airtable script environment gotchas: `setTimeout` does not exist (the script busy-waits on `Date.now()`), and the run limit is 180 seconds.
+- Known limitation: requests created before the last import date never get status updates. A `LOOKBACK_DAYS` constant near the top of the script (currently `0`) can widen the window (for example `7`).
 
----
+## 3. Decisions already made
 
-## 5. Airtable base (`appqmAg1Av6yheTUu`)
+- Mockup first, then live data. After reviewing the mockup, Tammy asked for a Quarterly view and for this handoff.
+- Default view is **Weekly**. The quarterly IPA / RFA rate hides a September slide (99.4% July, 98.8% August, 96.5% September), so Weekly is where problems show. Tammy has not yet confirmed whether management should land on Weekly or Quarterly.
+- Layout: plain-language summary first (with a "Copy this summary" button), then a short "what needs a look" list, then four bands (big number, change, chart, "how it is calculated"), then the team view and data checks.
+- Every number must come from the source tabs. No hand-typed weekly tabs.
+- Use `Resolved?` as the resolution signal for issue reports, not `Ticket Status` (see section 6).
 
-### 5.1 Tables
-| Table | Purpose |
-|---|---|
-| `Job Description Links` | One row per job: name plus the job description PDF. **The app reads this.** |
-| `BDR` | BDR candidate pool (US/CA). **The app reads this.** |
-| `WPC` | WPC candidate pool (MX/VE). **The app reads this.** |
-| `Reviewer Allowlist`, `Internal Team`, `Feeder` | Supporting tables. The allowlist was meant for a future Google sign-in; **the live app uses a single shared password instead** |
+## 4. Data sources (Airtable base `appmxzCOba8T4t0YJ`)
 
-The candidate fields come from Outlier/marketplace exports: name, email, `IP_COUNTRY_CODE`, `JOB_TITLE`, `JOB_COMPANY`, `JOB_EXPERIENCE`, `EDUCATION`, `WORKERSKILLS`, `PROJECTS`, and a resume PDF attachment. Don't rename these tables or columns: the app expects these exact names.
+### 4.1 Issue reports
 
-### 5.2 Fit columns (from an earlier Claude screening run)
-- **BDR:** `BDR Fit Rank`, `BDR Fit Score`, `BDR Fit Verdict`, `BDR Fit Notes`
-- **WPC:** `CSM Fit Rank`, `CSM Fit Score`, `CSM Fit Verdict`, `CSM Fit Notes`
-- There are **92 Strong fits in BDR** and **12 in WPC**.
+**Live source: `Issue Report Raw V2 ( Automated )`, table `tblXOYkhARUXRx5dV`.** 10,227 rows.
 
-### 5.3 Budget-check columns (added October 2026, both tables, Strong fits only)
-| Field | Meaning |
-|---|---|
-| `Seniority Level` | Entry / IC · Experienced IC · Manager / Senior · Executive / Leadership (judged from job titles) |
-| `Rate vs Budget` | Within budget · Borderline (no more than about 25% over) · Over budget · Over budget - Executive |
-| `Est. Market Rate (USD/yr)` | Estimated annual pay the candidate would likely expect |
-| `Location (State)` | **Still blank.** Needs the resume read (see section 7) |
-| `Rate Notes` | Why they were flagged, plus the benchmark used |
-
----
-
-## 6. Budget analysis: method and findings
-
-### 6.1 Budgets given
-- **BDR (USA):** $20/hr = $800/wk = $3,466.67/mo = $41,600/yr
-- **WPC (Mexico City):** half of BDR, so $10/hr = $400/wk = $1,733.33/mo = $20,800/yr
-
-### 6.2 How the estimates were set
-| Seniority | US | Canada | Mexico |
-|---|---|---|---|
-| Entry / IC | $50k (Borderline) | $40k (Within budget) | n/a |
-| Experienced IC | $70k (Over budget) | $50k (Borderline) | $25k (Borderline) |
-| Manager / Senior | $85k (Over budget) | n/a | $45k (Over budget) |
-| Executive / Leadership | $125k (Over budget - Executive) | n/a | $60k (Over budget - Executive) |
-
-Sources and the full state-by-state tables are in **`pay-rate-benchmarks.pdf`**. The figures came from search-result summaries of ZipRecruiter, Glassdoor, Payscale, Talentosy and others, so check any figure you rely on heavily against its source.
-
-### 6.3 Results
-| Flag | BDR (92) | WPC (12) |
+| Field | ID | Notes |
 |---|---|---|
-| Within budget | 3 (all Canada) | 0 |
-| Borderline | 43 | 2 |
-| Over budget | 40 | 4 |
-| Over budget - Executive | 6 | 6 |
+| Ticket ID | `fldgCS20KjeM7KT3p` | |
+| Resolved? | `fldggm5sX3QKKjomR` | single select, text values `"true"` / `"false"` (10,214 true, 13 false) |
+| Time Started ( PHT ) | `fldE8jhDB4FTDNv6d` | dateTime |
+| Time Resolved ( PHT ) | `fldRelgfLFo9BW48K` | dateTime |
+| Time Created in PHT | `fldOjFvbJrWdKtCtR` | createdTime |
+| Resolved By | `fldCJ6cEVwPOzsfsJ` | text |
+| Support Rating | `fldiMcuLqfhy9FGsG` | number, CSAT input |
+| Platform / Issue Type / Workstream | `fldFrsxoqScOzCWBu` / `fldTwQHzQcc4oyYrm` / `fld4Uy4NteULQa5V4` | for filters |
+| Resolution Time (minutes) | `fldbXUmvEun5Q9ORA` | formula |
+| Ticket Status | `fldzubiY3rWcagHoq` | **do not use** (see section 6) |
 
-- **Executive-level, BDR:** Matimba Masinga, Marcia Stuhler, Todd Gillen, Emily Vinyard, Kimberly Millis, Brandon NeSmith
-- **Executive-level, WPC:** Mario Azuela, Mark Nakamichi, Darren Gonzalez Avelar, Andrea Rojas, Adrian Olaya
+Related, not yet analysed: `Issue Report Raw V2` (`tblYDP3J4A5344xbJ`, has a `CSAT %` formula `fld8EbKXRAMFu1CqQ` and a `Solved By (Stats)` link), `Issue Report ( Raw )` (`tblEcfnf2IRDkGKhf`), `Archived` (`tblOnzOXKExSnxO1d`, old tickets), `Issue Report Raw V2 copy` (`tblZ6mdyWTLAoUpEs`).
 
-### 6.4 Key findings
-1. **The $20/hr BDR budget is below the average US SDR base pay in every state except Florida (about even).** The US average is about $55k. Expect pushback from anyone beyond entry level.
-2. **The WPC job description's posted pay is lower than the WPC budget used for the flags.** The job description says **$212/week plus $0.50 per approved hour**, which is about **$5.80/hr, or about $12k/yr**, compared with the $10/hr used. At the posted pay, every WPC strong fit is over budget. **This needs a decision** (see section 7).
-3. **The WPC "CSM" role is really telesales.** Mexican sales pay (about MXN 12k/month) is a better comparison than CSM pay (about MXN 38k/month in CDMX). The posted pay is reasonable for entry-level reps, but not for the senior account managers and directors who rank as strong fits.
+**Hand-typed weekly feeds (to be replaced by computation):**
+- `Weekly Ticket Count` (`tblVGf5Uv7R88vV72`): `Week Date` `fldo8I5jJ6muKsGMT`, `Total Tickets` `fldRFBR7XBx5x0V3Y`. 87 weeks, 2025-02-03 to 2026-09-28. Tammy calls this tab "the clearest signal." Week of Oct 5 is not entered yet.
+- `WTD Issue Report` (`tbl39kr5lkHieDc8a`): `Week Date`, `Resolution Rate`. Not inspected.
 
----
+### 4.2 IPA / RFA requests
 
-## 7. Open items and next steps (in priority order)
+- `IPA - RFA Request Data V2` (`tblvKbQNw1aoeqlCm`). Key fields: `REQUEST_ID` `fldYdb9wwzIi8RBId`, `CREATED_AT` `fldPGfN5vhkb7aWTF` (date), `COMPLETED_AT` `fldpag3rCG9kDevQB` (date), `TICKET_STATUS` `fldXTJuVYOWNblz2H` (text with emoji, for example `pending 🟡`, `completed 🟢`, `completed 🔴`), `NUM_CBS_IN_TICKET` `fldDvzMrBxHbyIEl5`. The `% ...` columns are text.
+- Hand-typed weekly feed: `IPA Request Count` (`tblXY0ZcYcCrIIlkq`): `Week Date` `fldf2g8dfHjVBbvLd`, `Total Request Count` `fldbyrEtRH9xeIFpk`, `Total Request Resolved` `fldVBv5XGH5Gura0q`, `Total Request Pending` `fldG4bp8uBxvrdMKo`, `Resolution Rate` `fldJc0kOXpvUVLlja`. 9 weeks, Aug 3 to Sep 28. Rate = resolved / total.
+- **Privacy:** V2 contains requester emails and free-text approver notes. The dashboard should show **aggregates only**. Do not ship row-level data to the browser.
 
-| # | Item | Owner | How |
-|---|---|---|---|
-| 1 | **Decide the WPC budget:** the posted job pay (about $5.80/hr) or $10/hr | Hiring manager | Then re-flag the 12 WPC strong fits in Airtable |
-| 2 | **Replace `AIRTABLE_TOKEN`** with the new owner's token | New owner | Section 4.4, then redeploy |
-| 3 | **Confirm deep review works** on the live app | New owner | Click a candidate → Deep review |
-| 4 | **Fill in `Location (State)`** and re-price by state | Claude session | See "Claude Code environment" below |
-| 5 | **Approve Claude's GitHub access** to the repo | scale-ops org owner | Pending request: org settings → GitHub Apps → Claude → add `ubiquitous-system` |
-| 6 | Check BDR flags against the BDR job description's posted pay, if it lists one | New owner | Same idea as finding 2 |
-| 7 | *(Cosmetic)* The job summary panel shows raw `#`/`##` markdown symbols | Developer | Render the summary as markdown in `app/page.tsx` |
-| 8 | *(Docs)* `resume-screening-app/README.md` doesn't mention setting Vercel's Root Directory, and still describes a direct Anthropic key | Developer | Update when convenient |
+### 4.3 QMO / QMA transitions
 
-### Claude Code environment (if you use Claude to keep working on this)
-- **Resumes:** Claude's cloud environment blocks `v5.airtableusercontent.com`, where Airtable stores resume files. Add it under **environment menu → Edit → Network access → Allowed domains**, then start a **new** session.
-- **GitHub pushes:** Claude can't push to the repo until item 5 is approved and you reconnect GitHub at https://claude.ai/customize/connectors?auth_start=github&auth_start_force=1. Until then, upload files through GitHub's website.
-- **Prompt to continue the Airtable work:**
-  > Continue the rate-vs-budget work on Airtable base appqmAg1Av6yheTUu: read each strong-fit resume, fill in Location (State), and re-price using the state rates in pay-rate-benchmarks.md.
+Which tab feeds the manager's counts is **unconfirmed** (see section 7). Candidates:
 
----
+- `Launchpad Transition Tickets` (`tblzMUMhqPwnL3deS`): the live tab, 106 rows. Key fields: Status `fldZxFDbao5OZVJVn`, Time Started (PHT) `fldlSbOPFrn4x9fzM`, Time Resolved (PHT) `fldPkNB7ChIFAMQ1K`, Resolved by `fldzR2M6sbx48g92d`, Resolution time in minutes `fld75aijbkMdvrmyh`, Rate the support `fld2bAia6mn4Tam5h`.
+- `Launchpad Transition Tickets copy` (`tblIrWykHzED4HOKy`): 72 rows, **all created 2026-09-28**, so it is a snapshot. Tammy asked to look at this one; recommend reading the live tab instead once confirmed.
+- `QMO QMA Transitions` (`tbldHbgRCNRxp0hsA`): Completed by, Transition Status, Request Date (text), Handling Time (duration). Not inspected. Also `QMO/A Records` (`tbl4vVCB0h6gaqV7Y`). Not inspected.
+- **Ruled out:** `Linear Ticket RR` (`tblIGVnEUGekLHVay`). Its weekly counts (Sep 28: 26, Sep 21: 9, Sep 14: 8, Sep 7: 5, Aug 31: 19, Aug 24: 45, Aug 17: 72, Aug 10: 28, Aug 3: 1) do not match the manager's (30, 27, 55, 62, 70, 50, 86, 79, 0).
 
-## 8. Troubleshooting
+### 4.4 Other useful tabs
 
-| You see | Fix |
-|---|---|
-| Login box keeps reappearing | Wrong password. Check `APP_PASSWORD` in Vercel |
-| "Set the APP_PASSWORD environment variable…" | Add `APP_PASSWORD`, then redeploy |
-| "Could not resolve authentication method…" | The Gateway variables are missing or misspelled, or you didn't redeploy after adding them |
-| "Missing environment variable …" | Add it in Vercel, then redeploy |
-| "Airtable error 401/403" | The token is wrong, expired, or lacks access to the base |
-| "Airtable error 404" | A table was renamed. The app needs `Job Description Links`, `BDR` and `WPC` |
-| "model not found" | Check the exact name under Vercel → AI Gateway → Models and update `CLAUDE_MODEL` |
-| Build fails: "No Next.js version detected" | Vercel Root Directory isn't `resume-screening-app` |
-| Some rows say "Not scored" | Click **Re-run screening** |
-| A job doesn't appear in the list | Its `Job Description Links` row has no PDF attached |
+`Solved By Stats` (`tblZ7arjlgcoQRoeO`, per-person tickets solved and average resolution), `PH Holidays` (`tbl4eN0WLlyIZFG0c`), `Leave Plots` (`tblsdXjygSNML72C3`), `Shift Schedules` (`tblKgex1ian6J2YEF`), `Team Member Emails` (`tblgp5VmdnAOz8j7r`).
 
----
+## 5. Metric definitions and acceptance numbers
 
-## 9. Lessons learned
+The live computation must **reproduce these figures** (taken from the manager's sheet and the weekly tabs). Weeks start Monday. Excel serials in the sheet: `46237` = 2026-08-03.
 
-- **Redeploy after every environment variable change.** Vercel doesn't apply new variables to a running deployment.
-- **GitHub Enterprise app approvals happen per repository.** An app installed on the org isn't automatically allowed on every repo, so an org owner has to approve each one.
-- **Airtable attachment links expire.** Never store them; fetch fresh links each time, which the app already does.
-- **Job titles alone tell you seniority, but not dates.** Someone who was a "Director" 8 years ago is flagged the same as a current one, so spot-check the executive flags.
-- **Check each job description's posted pay against the budget** before flagging candidates.
+| Week of | Issue tickets | Issue resolved | IPA requests | IPA resolved | Transition tickets | Avg minutes to resolve |
+|---|---|---|---|---|---|---|
+| Aug 3 | 373 | 99.46% | 117 | 98.29% | 0 | |
+| Aug 10 | 415 | 99.76% | 160 | 100% | 79 | |
+| Aug 17 | 599 | 98.83% | 267 | 98.50% | 86 | |
+| Aug 24 | 620 | 98.06% | 348 | 98.56% | 50 | |
+| Aug 31 | 466 | 99.79% | 204 | 96.57% | 70 | |
+| Sep 7 | 298 | 98.99% | 122 | 97.54% | 62 | |
+| Sep 14 | 264 | 98.48% | 122 | 95.90% | 55 | 31 |
+| Sep 21 | 184 | 97.28% | 100 | 96.00% | 27 | 249 |
+| Sep 28 | 249 | 97.99% | 110 | 96.36% | 30 | 352 |
+
+Monthly (manager's sheet): issue tickets May 1,148 / Jun 875 / Jul 1,266 / Aug 1,924 / Sep 1,461; IPA requests May 60 / Jun 372 / Jul 473 / Aug 892 / Sep 658; transitions Jul 163 / Aug 190 / Sep 244; CSAT 100% every period.
+
+Quarterly (computed for the mockup): issue volume from whole Monday-start weeks in `Weekly Ticket Count`: Q2 2025 14,389 / Q3 2025 6,991 / Q4 2025 4,111 / Q1 2026 3,609 / Q2 2026 3,520 / Q3 2026 4,865. Quarterly rates are volume-weighted from the monthly sheet (issue: Q2 98.34% for May and June only, Q3 98.71%; IPA: Q2 98.15%, Q3 98.19%).
+
+Definitions to implement (confirm against the figures above; the manager's exact formulas were not given):
+- **Resolution rate** = resolved ÷ created in the period. IPA's rate is confirmed this way (for example 106 ÷ 110 = 96.36% for Sep 28).
+- **Average time to resolve** = mean of (Time Resolved − Time Started) in minutes for tickets started in the period. Recorded only from Sep 14 for transitions.
+- **CSAT** = Support Rating converted to a percentage. Also show **how many people answered**.
+- **The week of Sep 28 straddles Oct 1 to 4**, so calendar-quarter totals computed from ticket dates will differ slightly from the mockup's whole-week quarterly totals. This is expected; document which basis the live version uses.
+
+## 6. Known data-quality issues
+
+1. **`Ticket Status` is unreliable** on `Issue Report Raw V2 ( Automated )`: "Open" on 8,831 rows, blank on 1,387, "Closed" on 9, while `Resolved?` says 10,214 resolved and 13 open. Use `Resolved?`.
+2. **Launchpad copy is a snapshot** (72 rows, all created on 2026-09-28). The live tab has 106.
+3. **Transition counts do not reconcile.** The manager reports 244 for September; the Launchpad tab holds 106 in total.
+4. **Weekly tabs are typed by hand** and the manager's monthly numbers cannot be reproduced by adding up weeks, because weeks straddle months.
+5. **CSAT is exactly 100% every week since May.** That usually means very few responses. Needs a response count.
+6. **Time zones:** fields are labelled "PHT" but Airtable stores absolute times. Before bucketing by week, check each field's configured time zone and a few sample rows. Example: Launchpad record started `2026-09-26T13:51:00.000Z`.
+
+## 7. Open questions for Tammy (ask before building)
+
+1. **Which tab feeds the manager's transition counts** (163 / 190 / 244 per month)? Candidates are in 4.3. This was asked and is still unanswered.
+2. Should the default view be Weekly or Quarterly for management?
+3. Where does this page live and how is it deployed (the `ubiquitous-system` repo layout, hosting, CI)? Who can see it? Is a login needed?
+4. Show **named individuals** in the team view, or anonymise? The mockup uses "Teammate 1 to 6" with placeholder values.
+5. Targets: what resolution rate and time-to-resolve count as good (for red/amber/green)?
+
+## 8. Mockup structure (`index.html`)
+
+Single file. Script constants to replace with data loaded from JSON:
+
+- `W9`, `M5`, `Q6`, `Q2`: axis labels.
+- `lenses[]`: per lens `id` (`issue`, `ipa`, `transitions`, `csat`), `name`, `src`, `calc`, `note`, and chart data objects `weekly`, `monthly`, `quarterly` (each `labels`, `prefix`, `bars`, `line`, `barName`, `lineName`, `lineFmt`, `lineMin`, `lineMax`), plus `qnote` (extra caveat shown only in Quarterly).
+- `views[lensId][mode]`: big number, unit, change text, `cls` (`good` / `bad` / `flat`) and one-line note.
+- `stories[mode]` (heading and summary paragraph), `watches[mode]` (attention list), `team[]` (placeholder), `health[]` (data checks).
+- Functions: `drawChart(host, d, readoutEl)` (hand-built SVG bars plus line, hover and keyboard focus readout), `renderBands`, `drawAll`, `renderLead`, `setMode`.
+- Design tokens: ink `#12272C`, teal `#0F6E73`, soft teal `#CDE5E6`, paper `#EEF3F4`, red `#B3332D`, amber `#A85F00`, green `#2B7A4B`. Font: Atkinson Hyperlegible. Do not accent colour alone; every status also has text.
+
+## 9. Recommended build plan
+
+Do these in order and confirm each with Tammy before moving on.
+
+1. **Resolve the open questions** (section 7), especially the transition source.
+2. **Write a metrics builder script** (for example `scripts/build-metrics.mjs`): reads Airtable through the REST API (paginated), computes weekly, monthly and quarterly metrics per lens (PHT, Monday weeks), and writes `data/metrics.json`. The summary text and attention list should be generated from the numbers, not typed.
+3. **Add tests** that assert the acceptance table in section 5. If a number does not match, stop and explain why before changing the definition.
+4. **Change `index.html`** to load `metrics.json` instead of constants. Keep the layout and views.
+5. **Schedule the build.** The IPA sync runs every 3 days at 09:00 UTC, so schedule the build shortly after. Pick a mechanism that matches the repo's hosting (for example a scheduled CI job) and confirm with Tammy.
+6. **Retire the hand-typed tabs** (`Weekly Ticket Count`, `IPA Request Count`) only after the dashboard matches them for several weeks. **Do not delete them without explicit approval.**
+7. **Then the extras** (all optional, in this order of value): targets with automatic red/green; median and 90th percentile instead of averages; open tickets by age; filters by platform, workstream and issue type; arrivals by hour and weekday (PHT) for staffing; holiday and leave overlays; a Monday Slack post of the summary; alerts when a rate drops below target.
+
+**Security rules:** use a **read-only Airtable personal access token scoped to this one base**, stored as an environment variable or CI secret. Never commit tokens. Never expose the token or row-level data in the browser. Do not read or print `REDASH_API_KEY`.
+
+## 10. Working agreements with Tammy
+
+- She prefers **numbered, small steps with explicit check-ins**, and wants the **expected output explained in advance** and each step **confirmed as non-destructive** before it runs.
+- Ask before anything that writes, deletes or schedules. Reads are fine.
+- Be plain about what was and was not verified. Say when something was tested only with a stub, or not tested at all.
+- She is the decision-maker for what management sees; flag judgement calls (such as naming individuals) instead of deciding them.
+
+## 11. What was not done
+
+- No access to the `ubiquitous-system` repository was available, so the file layout there is unknown.
+- The mockup has not been viewed in a real browser by the assistant.
+- Not inspected: `QMO QMA Transitions`, `QMO/A Records`, `WTD Issue Report`, `Issue Report Raw V2` (the non-automated one), and the Redash query's SQL (the connector returns metadata only).
+- Nothing was changed in Airtable by the dashboard work. The only live automation is the IPA / RFA sync described in section 2.
