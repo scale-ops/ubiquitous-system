@@ -31,10 +31,13 @@ export function summary(c: MediaGenCandidate) {
 }
 
 export function downloadCsv(rows: MediaGenCandidate[], fileName: string) {
-  const header = ["Domain", "Rank", "Status", "Name", "Email", "Verdict", "Score", "Why they're a fit", "Concerns / gaps", "Background", "Availability"];
+  const header = ["Domain", "Rank", "Status", "Name", "Email", "Verdict", "Score", "Why they're a fit", "Concerns / gaps", "Background", "Availability",
+    "Quality tier", "Quality score", "Quality score 90d", "Defect rate", "Quality flags"];
   const lines = rows.map((r) => [
     r.domain, r.rank ?? "", r.status, r.name, r.email, r.verdict, r.score ?? "",
     r.why.join("; "), r.concerns.join("; "), r.profile, r.availability,
+    r.qualitySignals.tier, r.qualitySignals.score ?? "", r.qualitySignals.score90d ?? "", r.qualitySignals.defectRate ?? "",
+    r.qualitySignals.flags.join("; "),
   ]);
   const csv = [header, ...lines]
     .map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))

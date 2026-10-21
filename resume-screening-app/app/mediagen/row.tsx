@@ -1,5 +1,6 @@
 import type { MediaGenCandidate } from "@/app/api/mediagen/route";
 import { badgeClass, summary } from "./helpers";
+import { QualityBadge, QualityPanel } from "@/app/quality";
 
 // One candidate in the rankings table, laid out like the BDR/WPC results. Click to show strengths and gaps.
 export function CandidateRow(props: { c: MediaGenCandidate; showDomain: boolean; open: boolean; onToggle: () => void }) {
@@ -17,6 +18,7 @@ export function CandidateRow(props: { c: MediaGenCandidate; showDomain: boolean;
         <td>
           <span className={badgeClass(c.verdict)}>{c.score != null ? `${c.score} · ` : ""}{c.verdict || "–"}</span>
           <div className="muted small">{c.status}</div>
+          <QualityBadge q={c.qualitySignals} />
         </td>
         <td>{summary(c)}</td>
       </tr>
@@ -51,6 +53,7 @@ export function CandidateRow(props: { c: MediaGenCandidate; showDomain: boolean;
                 c.mediagenCheck && `MediaGen check: ${c.mediagenCheck}`,
               ].filter(Boolean).join(" · ")}
             </p>
+            <QualityPanel q={c.qualitySignals} />
           </td>
         </tr>
       )}

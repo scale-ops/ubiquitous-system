@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { MediaGenCandidate } from "@/app/api/mediagen/route";
 import { DOMAINS, STATUSES, STATUS_ORDER, VERDICTS, downloadCsv } from "./helpers";
 import { CandidateRow } from "./row";
+import { QUALITY_TIERS, tierRank } from "@/lib/quality";
 
 export default function MediaGenRankings() {
   const [all, setAll] = useState<MediaGenCandidate[]>([]);
@@ -14,6 +15,8 @@ export default function MediaGenRankings() {
   const [verdict, setVerdict] = useState<(typeof VERDICTS)[number]>("All");
   const [search, setSearch] = useState("");
   const [selectOnly, setSelectOnly] = useState(false);
+  const [tier, setTier] = useState("All");
+  const [sort, setSort] = useState<"rank" | "quality" | "defect">("rank");
   const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -28,8 +31,9 @@ export default function MediaGenRankings() {
   }, []);
 
   const inDomain = useMemo(
-    () => all.filter((c) => (domain === "All" || c.domain === domain) && (!selectOnly || c.selectCb)),
-    [all, domain, selectOnly],
+    () => all.filter((c) => (domain === "All" || c.domain === domain) && (!selectOnly || c.selectCb) &&
+      (tier === "All" || c.qualitySignals.tier === tier)),
+    [all, domain, selectOnly, tier],
   );
 
   const statusCounts = useMemo(() => {
@@ -43,14 +47,18 @@ export default function MediaGenRankings() {
     return inDomain
       .filter((c) => status === "All" || c.status === status)
       .filter((c) => verdict === "All" || c.verdict === verdict)
-      .filter((c) => !q || [c.name, c.email, c.profile, c.notes, c.country].join(" ").toLowerCase().includes(q))
-      .sort((a, b) =>
-        STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) ||
-        a.domain.localeCompare(b.domain) ||
-        (a.rank ?? 9999) - (b.rank ?? 9999) ||
-        (b.score ?? 0) - (a.score ?? 0),
-      );
-  }, [inDomain, status, verdict, search]);
+      .filter((c) => !q || [c.name, c.email, c.profile, c.notes, c.country, ...c.qualitySignals.flags].join(" ").toLowerCase().includes(q))
+      .sort((a, b) => {
+        if (sort === "quality") {
+          return tierRank(a.qualitySignals) - tierRank(b.qualitySignals) || (b.qualitySignals.score ?? 0) - (a.qualitySignals.score ?? 0);
+        }
+        if (sort === "defect") return (a.qualitySignals.defectRate ?? 9) - (b.qualitySignals.defectRate ?? 9);
+        return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) ||
+          a.domain.localeCompare(b.domain) ||
+          (a.rank ?? 9999) - (b.rank ?? 9999) ||
+          (b.score ?? 0) - (a.score ?? 0);
+      });
+  }, [inDomain, status, verdict, search, sort]);
 
   return (
     <main>
@@ -69,6 +77,21 @@ export default function MediaGenRankings() {
               <option key={d} value={d}>{d} (need {need})</option>
             ))}
             <option value="All">All domains</option>
+          </select>
+        </label>
+        <label>
+          Quality
+          <select value={tier} onChange={(e) => setTier(e.target.value)}>
+            <option value="All">All quality tiers</option>
+            {QUALITY_TIERS.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <label>
+          Sort by
+          <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+            <option value="rank">MediaGen ranking</option>
+            <option value="quality">Quality (best first)</option>
+            <option value="defect">Defect rate (lowest first)</option>
           </select>
         </label>
         <label>
