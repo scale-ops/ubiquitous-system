@@ -1,82 +1,96 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { MediaGenCandidate } from "@/app/api/mediagen/route";
-import { DOMAINS, STATUSES, STATUS_ORDER, VERDICTS, downloadCsv } from "./helpers";
-import { CandidateRow } from "./row";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import type { SelectCb } from "@/app/api/selectcbs/route";
+import { PersonRow } from "./row";
 import { QUALITY_TIERS, tierRank } from "@/lib/quality";
 
-export default function MediaGenRankings() {
-  const [all, setAll] = useState<MediaGenCandidate[]>([]);
+const DOMAINS = ["Architecture & Interior Design", "Graphic Design", "Video Production", "3D Modeling & CAD", "Animation & Motion", "Game Development"];
+const STATUSES = ["Shortlist", "Backup", "Not eligible", "Not a fit", "Can't assess", "All"] as const;
+const ORDER = ["Shortlist", "Backup", "Reactivation needed", "Not eligible", "Not a fit", "Can't assess"];
+const DEGREES = ["Doctorate", "Masters", "Bachelors", "Associate", "Other", "None listed", "No parsed resume"];
+const SENIORITY = ["Executive / Director", "Manager / Lead", "Senior", "Mid-level", "Entry-level", "Unknown"];
+const SORTS = { rank: "MediaGen ranking", quality: "Quality (best first)", defect: "Defect rate (lowest first)" } as const;
+
+function downloadCsv(rows: SelectCb[], fileName: string) {
+  const header = ["Status", "Domain", "Rank", "Name", "Email", "Verdict", "Score", "Why they're a fit", "Concerns / gaps", "Background", "Main field", "Tier", "Team",
+    "Quality tier", "Quality score", "Quality score 90d", "Defect rate", "Quality flags", "Highest degree", "Seniority", "Latest role", "Career span (yrs)", "Work history"];
+  const lines = rows.map((p) => [p.status, p.domain, p.rank ?? "", p.name, p.email, p.verdict, p.score ?? "",
+    p.why.join("; "), p.concerns.join("; "), p.profile, p.mainField, p.tier, p.team,
+    p.quality.tier, p.quality.score ?? "", p.quality.score90d ?? "", p.quality.defectRate ?? "", p.quality.flags.join("; "),
+    p.resume.highestDegree, p.resume.seniority, p.resume.latestRole, p.resume.careerSpan ?? "", p.resume.workHistory.join(" | ")]);
+  const csv = [header, ...lines].map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  link.download = fileName;
+  link.click();
+}
+
+export default function SelectCbs() {
+  const [all, setAll] = useState<SelectCb[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [domain, setDomain] = useState(Object.keys(DOMAINS)[0]);
+  const [domain, setDomain] = useState("All");
   const [status, setStatus] = useState<(typeof STATUSES)[number]>("Shortlist");
-  const [verdict, setVerdict] = useState<(typeof VERDICTS)[number]>("All");
   const [search, setSearch] = useState("");
-  const [selectOnly, setSelectOnly] = useState(false);
   const [tier, setTier] = useState("All");
-  const [sort, setSort] = useState<"rank" | "quality" | "defect">("rank");
+  const [degree, setDegree] = useState("All");
+  const [seniority, setSeniority] = useState("All");
+  const [sort, setSort] = useState<keyof typeof SORTS>("rank");
   const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/mediagen")
+    fetch("/api/selectcbs")
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
-        setAll(data.candidates);
+        setAll(data.people);
       })
-      .catch((e) => setError(`Could not load MediaGen candidates from Airtable: ${e.message}`))
+      .catch((e) => setError(`Could not load Select CBs from Airtable: ${e.message}`))
       .finally(() => setLoading(false));
   }, []);
 
   const inDomain = useMemo(
-    () => all.filter((c) => (domain === "All" || c.domain === domain) && (!selectOnly || c.selectCb) &&
-      (tier === "All" || c.qualitySignals.tier === tier)),
-    [all, domain, selectOnly, tier],
+    () => all.filter((p) => (domain === "All" || p.domain === domain) && (tier === "All" || p.quality.tier === tier) &&
+      (degree === "All" || p.resume.highestDegree === degree) && (seniority === "All" || p.resume.seniority === seniority)),
+    [all, domain, tier, degree, seniority],
   );
 
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { All: inDomain.length };
-    for (const c of inDomain) counts[c.status] = (counts[c.status] ?? 0) + 1;
-    return counts;
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { All: inDomain.length };
+    for (const p of inDomain) c[p.status] = (c[p.status] ?? 0) + 1;
+    return c;
   }, [inDomain]);
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return inDomain
-      .filter((c) => status === "All" || c.status === status)
-      .filter((c) => verdict === "All" || c.verdict === verdict)
-      .filter((c) => !q || [c.name, c.email, c.profile, c.notes, c.country, ...c.qualitySignals.flags].join(" ").toLowerCase().includes(q))
+      .filter((p) => status === "All" || p.status === status)
+      .filter((p) => !q || [p.name, p.email, p.profile, p.mainField, ...p.concerns, ...p.quality.flags, p.resume.latestRole,
+        p.resume.fieldsOfStudy, ...p.resume.workHistory, ...p.resume.skills, ...p.resume.certifications].join(" ").toLowerCase().includes(q))
       .sort((a, b) => {
-        if (sort === "quality") {
-          return tierRank(a.qualitySignals) - tierRank(b.qualitySignals) || (b.qualitySignals.score ?? 0) - (a.qualitySignals.score ?? 0);
-        }
-        if (sort === "defect") return (a.qualitySignals.defectRate ?? 9) - (b.qualitySignals.defectRate ?? 9);
-        return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) ||
-          a.domain.localeCompare(b.domain) ||
-          (a.rank ?? 9999) - (b.rank ?? 9999) ||
-          (b.score ?? 0) - (a.score ?? 0);
+        if (sort === "quality") return tierRank(a.quality) - tierRank(b.quality) || (b.quality.score ?? 0) - (a.quality.score ?? 0);
+        if (sort === "defect") return (a.quality.defectRate ?? 9) - (b.quality.defectRate ?? 9);
+        return ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || a.domain.localeCompare(b.domain) ||
+          (a.rank ?? 9999) - (b.rank ?? 9999) || (b.score ?? 0) - (a.score ?? 0) || a.name.localeCompare(b.name);
       });
-  }, [inDomain, status, verdict, search, sort]);
+  }, [inDomain, status, search, sort]);
 
   return (
     <main>
-      <p className="small"><a href="/">← Back to resume screening</a></p>
-      <h1>MediaGen QMA rankings</h1>
+      <p className="small"><a href="/">← Back to resume screening</a> · <a href="/mediagen">MediaGen rankings</a></p>
+      <h1>Select CBs</h1>
       <p className="muted">
-        Freelancers to train and evaluate AI in six media domains (PKJA RLI MediaGen). Ranked ahead of time from resume reads,
-        platform quality, AI-eval history and availability. Click anyone to see why they are or aren&apos;t a fit.
+        Every Select CB, judged from their resume for the six MediaGen media domains, with platform quality signals. Click anyone to see
+        why they are or aren&apos;t a fit, their quality history and their full resume deep dive.
       </p>
 
       <section className="card controls">
         <label>
           Domain
           <select value={domain} onChange={(e) => setDomain(e.target.value)}>
-            {Object.entries(DOMAINS).map(([d, need]) => (
-              <option key={d} value={d}>{d} (need {need})</option>
-            ))}
             <option value="All">All domains</option>
+            {DOMAINS.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
         </label>
         <label>
@@ -87,25 +101,33 @@ export default function MediaGenRankings() {
           </select>
         </label>
         <label>
+          Highest degree
+          <select value={degree} onChange={(e) => setDegree(e.target.value)}>
+            <option value="All">All degrees</option>
+            {DEGREES.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </label>
+        <label>
+          Seniority
+          <select value={seniority} onChange={(e) => setSeniority(e.target.value)}>
+            <option value="All">All levels</option>
+            {SENIORITY.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </label>
+        <label>
           Sort by
-          <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
-            <option value="rank">MediaGen ranking</option>
-            <option value="quality">Quality (best first)</option>
-            <option value="defect">Defect rate (lowest first)</option>
+          <select value={sort} onChange={(e) => setSort(e.target.value as keyof typeof SORTS)}>
+            {Object.entries(SORTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </label>
         <label>
           Search
-          <input placeholder="Name, email, background…" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </label>
-        <label style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingBottom: 8 }}>
-          <input type="checkbox" style={{ minWidth: 0 }} checked={selectOnly} onChange={(e) => setSelectOnly(e.target.checked)} />
-          Select CBs only
+          <input placeholder="Name, email, role, skill, school…" value={search} onChange={(e) => setSearch(e.target.value)} />
         </label>
       </section>
 
       {error && <p className="error">{error}</p>}
-      {loading && <p className="muted">Loading candidates from Airtable…</p>}
+      {loading && <p className="muted">Loading Select CBs from Airtable…</p>}
 
       {!loading && !error && (
         <section className="card">
@@ -113,31 +135,25 @@ export default function MediaGenRankings() {
             <div className="chips">
               {STATUSES.map((s) => (
                 <button key={s} className={status === s ? "chip active" : "chip"} onClick={() => setStatus(s)}>
-                  {s} ({statusCounts[s] ?? 0})
+                  {s} ({counts[s] ?? 0})
                 </button>
               ))}
             </div>
+            <button onClick={() => downloadCsv(rows, `Select CBs - ${domain} - ${status}.csv`)}>Download CSV</button>
           </div>
-          <div className="toolbar" style={{ marginTop: 10 }}>
-            <div className="chips">
-              {VERDICTS.map((v) => (
-                <button key={v} className={verdict === v ? "chip active" : "chip"} onClick={() => setVerdict(v)}>{v}</button>
-              ))}
-            </div>
-            <button onClick={() => downloadCsv(rows, `MediaGen QMA - ${domain} - ${status}${selectOnly ? " - Select CBs" : ""}.csv`)}>Download CSV</button>
-          </div>
-
           <table>
             <thead>
               <tr><th>#</th><th>Candidate</th><th>Score</th><th>Why</th></tr>
             </thead>
             <tbody>
-              {rows.map((c) => (
-                <CandidateRow key={c.id} c={c} showDomain={domain === "All"} open={openId === c.id} onToggle={() => setOpenId(openId === c.id ? null : c.id)} />
+              {rows.map((p) => (
+                <Fragment key={p.id}>
+                  <PersonRow p={p} open={openId === p.id} onToggle={() => setOpenId(openId === p.id ? null : p.id)} />
+                </Fragment>
               ))}
             </tbody>
           </table>
-          {rows.length === 0 && <p className="muted">No candidates match these filters.</p>}
+          {rows.length === 0 && <p className="muted">No one matches these filters.</p>}
         </section>
       )}
     </main>
