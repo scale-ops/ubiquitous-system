@@ -1,4 +1,5 @@
 import { handle } from "@/lib/http";
+import { toQuality, type Quality } from "@/lib/quality";
 
 // Lists every Select CB with their MediaGen evaluation from the Select CBs table in Airtable (read-only).
 const TABLE = "tblbT2o0Il8cjaKaJ";
@@ -21,6 +22,31 @@ export type SelectCb = {
   performance: number | null;
   hoursPerWeek: number | null;
   hasResume: boolean;
+  quality: Quality;
+  resume: ResumeDetail;
+};
+
+// Parsed-resume deep dive (from the platform's resume parser, loaded into the table).
+export type ResumeDetail = {
+  parsed: boolean;
+  highestDegree: string;
+  fieldsOfStudy: string;
+  education: string[];
+  topTierSchool: boolean;
+  seniority: string;
+  latestRole: string;
+  currentlyEmployed: boolean;
+  jobsListed: number | null;
+  careerSpan: number | null;
+  topField: string;
+  experienceByField: string;
+  reviewLeadExp: boolean;
+  workHistory: string[];
+  skills: string[];
+  certifications: string[];
+  publications: string[];
+  tests: string;
+  parsedOn: string;
 };
 
 type AirtableRecord = { id: string; fields: Record<string, unknown> };
@@ -33,6 +59,34 @@ function text(value: unknown): string {
 }
 
 const num = (value: unknown) => (typeof value === "number" ? value : null);
+
+const lines = (value: unknown) => text(value).split("\n").map((l) => l.trim()).filter(Boolean);
+const list = (value: unknown, sep: string) => text(value).split(sep).map((l) => l.trim()).filter(Boolean);
+
+function toResume(f: Record<string, unknown>): ResumeDetail {
+  const degree = text(f["Highest Degree"]);
+  return {
+    parsed: Boolean(degree) && degree !== "No parsed resume",
+    highestDegree: degree,
+    fieldsOfStudy: text(f["Fields of Study"]),
+    education: lines(f["Education Detail"]),
+    topTierSchool: f["Top-Tier School"] === true,
+    seniority: text(f["Seniority"]),
+    latestRole: text(f["Latest Role"]),
+    currentlyEmployed: f["Currently Employed"] === true,
+    jobsListed: num(f["Jobs Listed"]),
+    careerSpan: num(f["Career Span (yrs)"]),
+    topField: text(f["Top Experience Field"]),
+    experienceByField: text(f["Experience by Field"]),
+    reviewLeadExp: f["Review / Teaching / Lead Exp"] === true,
+    workHistory: lines(f["Work History"]),
+    skills: list(f["Resume Skills"], ","),
+    certifications: list(f["Certifications"], ";"),
+    publications: list(f["Publications"], ";"),
+    tests: text(f["Standardized Tests"]),
+    parsedOn: text(f["Resume Parsed On"]),
+  };
+}
 
 // "• one\n• two" -> ["one", "two"]
 const bullets = (value: unknown) =>
@@ -59,6 +113,8 @@ function toSelectCb(record: AirtableRecord): SelectCb {
     performance: num(f["PERFORMANCE_SCORE"]),
     hoursPerWeek: num(f["AVG_PAID_HRS_WEEK_4W"]),
     hasResume: Array.isArray(resume) && resume.length > 0,
+    quality: toQuality(f),
+    resume: toResume(f),
   };
 }
 
