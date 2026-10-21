@@ -1,0 +1,214 @@
+"use client";
+
+import { Fragment, useEffect, useMemo, useState } from "react";
+import type { MediaGenCandidate } from "@/app/api/mediagen/route";
+
+// Headcount needed per domain for the PKJA RLI MediaGen request.
+const DOMAINS: Record<string, number> = {
+  "Architecture & Interior Design": 12,
+  "Graphic Design": 9,
+  "Video Production": 24,
+  "3D Modeling & CAD": 24,
+  "Animation & Motion": 24,
+  "Game Development": 22,
+};
+const STATUSES = ["Shortlist", "Backup", "Reactivation needed", "Not eligible", "All"] as const;
+const VERDICTS = ["All", "Strong fit", "Good fit", "Possible fit", "Weak fit", "Not eligible"] as const;
+const STATUS_ORDER = ["Shortlist", "Backup", "Reactivation needed", "Not eligible"];
+
+function badgeClass(verdict: string) {
+  if (verdict === "Strong fit" || verdict === "Good fit") return "badge good";
+  if (verdict === "Possible fit") return "badge ok";
+  return "badge low";
+}
+
+// One-line "why", like the BDR/WPC results: the main strength, plus the main concern if there is one.
+function summary(c: MediaGenCandidate) {
+  if (c.status === "Not eligible") {
+    const reason = c.concerns.find((g) => g.startsWith("Blocked") || g.startsWith("Resume could not be matched"));
+    if (reason) return `Not eligible: ${reason}`;
+  }
+  const strength = c.why.find((w) => !w.startsWith("Background:")) ?? c.why[0] ?? "";
+  const concern = c.concerns.find((g) => g !== "None significant");
+  return concern ? `${strength}. Watch: ${concern}` : strength;
+}
+
+function downloadCsv(rows: MediaGenCandidate[], fileName: string) {
+  const header = ["Domain", "Rank", "Status", "Name", "Email", "Verdict", "Score", "Why they're a fit", "Concerns / gaps", "Background", "Availability"];
+  const lines = rows.map((r) => [
+    r.domain, r.rank ?? "", r.status, r.name, r.email, r.verdict, r.score ?? "",
+    r.why.join("; "), r.concerns.join("; "), r.profile, r.availability,
+  ]);
+  const csv = [header, ...lines]
+    .map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  link.download = fileName;
+  link.click();
+}
+
+export default function MediaGenRankings() {
+  const [all, setAll] = useState<MediaGenCandidate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [domain, setDomain] = useState(Object.keys(DOMAINS)[0]);
+  const [status, setStatus] = useState<(typeof STATUSES)[number]>("Shortlist");
+  const [verdict, setVerdict] = useState<(typeof VERDICTS)[number]>("All");
+  const [search, setSearch] = useState("");
+  const [selectOnly, setSelectOnly] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/mediagen")
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
+        setAll(data.candidates);
+      })
+      .catch((e) => setError(`Could not load MediaGen candidates from Airtable: ${e.message}`))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const inDomain = useMemo(
+    () => all.filter((c) => (domain === "All" || c.domain === domain) && (!selectOnly || c.selectCb)),
+    [all, domain, selectOnly],
+  );
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = { All: inDomain.length };
+    for (const c of inDomain) counts[c.status] = (counts[c.status] ?? 0) + 1;
+    return counts;
+  }, [inDomain]);
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return inDomain
+      .filter((c) => status === "All" || c.status === status)
+      .filter((c) => verdict === "All" || c.verdict === verdict)
+      .filter((c) => !q || [c.name, c.email, c.profile, c.notes, c.country].join(" ").toLowerCase().includes(q))
+      .sort((a, b) =>
+        STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) ||
+        a.domain.localeCompare(b.domain) ||
+        (a.rank ?? 9999) - (b.rank ?? 9999) ||
+        (b.score ?? 0) - (a.score ?? 0),
+      );
+  }, [inDomain, status, verdict, search]);
+
+  return (
+    <main>
+      <p className="small"><a href="/">← Back to resume screening</a></p>
+      <h1>MediaGen QMA rankings</h1>
+      <p className="muted">
+        Freelancers to train and evaluate AI in six media domains (PKJA RLI MediaGen). Ranked ahead of time from resume reads,
+        platform quality, AI-eval history and availability. Click anyone to see why they are or aren&apos;t a fit.
+      </p>
+
+      <section className="card controls">
+        <label>
+          Domain
+          <select value={domain} onChange={(e) => setDomain(e.target.value)}>
+            {Object.entries(DOMAINS).map(([d, need]) => (
+              <option key={d} value={d}>{d} (need {need})</option>
+            ))}
+            <option value="All">All domains</option>
+          </select>
+        </label>
+        <label>
+          Search
+          <input placeholder="Name, email, background…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={selectOnly} onChange={(e) => setSelectOnly(e.target.checked)} />
+          Select CBs only
+        </label>
+      </section>
+
+      {error && <p className="error">{error}</p>}
+      {loading && <p className="muted">Loading candidates from Airtable…</p>}
+
+      {!loading && !error && (
+        <section className="card">
+          <div className="toolbar">
+            <div className="chips">
+              {STATUSES.map((s) => (
+                <button key={s} className={status === s ? "chip active" : "chip"} onClick={() => setStatus(s)}>
+                  {s} ({statusCounts[s] ?? 0})
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="toolbar" style={{ marginTop: 10 }}>
+            <div className="chips">
+              {VERDICTS.map((v) => (
+                <button key={v} className={verdict === v ? "chip active" : "chip"} onClick={() => setVerdict(v)}>{v}</button>
+              ))}
+            </div>
+            <button onClick={() => downloadCsv(rows, `MediaGen QMA - ${domain} - ${status}${selectOnly ? " - Select CBs" : ""}.csv`)}>Download CSV</button>
+          </div>
+
+          <table>
+            <thead>
+              <tr><th>#</th><th>Candidate</th><th>Score</th><th>Why</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((c) => (
+                <Fragment key={c.id}>
+                  <tr className="clickable" onClick={() => setOpenId(openId === c.id ? null : c.id)}>
+                    <td>{c.rank ?? "–"}</td>
+                    <td>
+                      <strong>{c.name}</strong>
+                      {c.selectCb && <span className="badge ok" style={{ marginLeft: 6 }}>Select CB</span>}
+                      <div className="muted small">{c.profile}</div>
+                      {domain === "All" && <div className="muted small">{c.domain}</div>}
+                    </td>
+                    <td>
+                      <span className={badgeClass(c.verdict)}>{c.score != null ? `${c.score} · ` : ""}{c.verdict || "–"}</span>
+                      <div className="muted small">{c.status}</div>
+                    </td>
+                    <td>{summary(c)}</td>
+                  </tr>
+                  {openId === c.id && (
+                    <tr className="details">
+                      <td />
+                      <td colSpan={3}>
+                        <div className="grid">
+                          <div>
+                            <h4>Strengths</h4>
+                            <ul>{c.why.map((w, i) => <li key={i}>{w}</li>)}</ul>
+                          </div>
+                          <div>
+                            <h4>Gaps</h4>
+                            <ul>{c.concerns.map((w, i) => <li key={i}>{w}</li>)}</ul>
+                          </div>
+                        </div>
+                        <p className="small">
+                          <b>Email:</b> {c.email || "n/a"} · <b>Experience:</b> {c.notes || "n/a"} · <b>Education:</b> {c.degree || "n/a"}
+                        </p>
+                        <p className="muted small">
+                          {[
+                            c.country && `Country: ${c.country}`,
+                            c.yearsInField != null && `Years in field: ${c.yearsInField}`,
+                            c.certifications && `Certifications: ${c.certifications}`,
+                            c.quality && `Platform quality: ${c.quality}`,
+                            c.availability && `Availability: ${c.availability}`,
+                            c.lastPaidWork && `Last paid work: ${c.lastPaidWork}`,
+                            c.rosterTier && `Roster: ${c.rosterTier}`,
+                            c.team && `Source/team: ${c.team}`,
+                            c.alsoQualifiedIn && `Also qualified in: ${c.alsoQualifiedIn}`,
+                            c.mediagenCheck && `MediaGen check: ${c.mediagenCheck}`,
+                          ].filter(Boolean).join(" · ")}
+                        </p>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+          {rows.length === 0 && <p className="muted">No candidates match these filters.</p>}
+        </section>
+      )}
+    </main>
+  );
+}
