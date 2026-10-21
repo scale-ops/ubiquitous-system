@@ -1,4 +1,5 @@
 import { handle } from "@/lib/http";
+import { toQuality, type Quality } from "@/lib/quality";
 
 // Lists the pre-ranked MediaGen QMA candidates from Airtable (read-only).
 // Rankings, verdicts and the "why" text were written into the table ahead of time; nothing is re-scored here.
@@ -31,6 +32,7 @@ export type MediaGenCandidate = {
   alsoQualifiedIn: string;
   mediagenCheck: string;
   selectCb: boolean;
+  qualitySignals: Quality;
 };
 
 type AirtableRecord = { id: string; fields: Record<string, unknown> };
@@ -79,6 +81,7 @@ function toCandidate(record: AirtableRecord): MediaGenCandidate {
     alsoQualifiedIn: text(f["Also Qualified In"]),
     mediagenCheck: text(f["MediaGen Check"]),
     selectCb: f["In Select CBs List"] === true,
+    qualitySignals: toQuality(f),
   };
 }
 
