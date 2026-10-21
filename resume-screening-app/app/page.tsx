@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { Candidate, Job, Pool } from "@/lib/airtable";
 import type { Score } from "@/lib/claude";
 
-const POOLS: Pool[] = ["BDR", "WPC"];
-const BATCH_SIZE = 20;
-const PARALLEL_BATCHES = 3;
+const POOLS: Pool[] = ["BDR", "WPC", "Select CBs"];
+// Select CBs are scored from resume PDFs, so they go in smaller batches (PDF page limits) with more in parallel.
+const BATCH_SIZE: Record<Pool, number> = { BDR: 20, WPC: 20, "Select CBs": 6 };
+const PARALLEL_BATCHES: Record<Pool, number> = { BDR: 3, WPC: 3, "Select CBs": 6 };
 
 type Row = Candidate & { result?: Score; error?: string };
 type Saved = { jobSummary: string; rows: Row[]; ranAt: string };
@@ -98,10 +99,10 @@ export default function Home() {
       setStatus(`Loading ${pool} candidates from Airtable…`);
       const { candidates } = await api<{ candidates: Candidate[] }>(`/api/candidates?pool=${pool}`);
 
-      const batches = chunk(candidates, BATCH_SIZE);
+      const batches = chunk(candidates, BATCH_SIZE[pool]);
       const scored: Row[] = [];
       setProgress({ done: 0, total: candidates.length });
-      setStatus("Scoring candidates…");
+      setStatus(pool === "Select CBs" ? "Reading resumes and scoring candidates…" : "Scoring candidates…");
 
       let next = 0;
       async function worker() {
@@ -120,7 +121,7 @@ export default function Home() {
           setProgress((p) => ({ ...p, done: p.done + batch.length }));
         }
       }
-      await Promise.all(Array.from({ length: PARALLEL_BATCHES }, worker));
+      await Promise.all(Array.from({ length: PARALLEL_BATCHES[pool] }, worker));
 
       const now = new Date().toLocaleString();
       setRanAt(now);
@@ -166,6 +167,7 @@ export default function Home() {
     <main>
       <h1>Resume Screening</h1>
       <p className="muted">Pick a job and a candidate pool, then let Claude rank the best fits.</p>
+      <p className="small"><a href="/mediagen">MediaGen QMA rankings (6 media domains) →</a></p>
 
       <section className="card controls">
         <label>
@@ -188,6 +190,10 @@ export default function Home() {
           {running ? "Working…" : rows.length ? "Re-run screening" : "Find best fits"}
         </button>
       </section>
+
+      {pool === "Select CBs" && !running && (
+        <p className="muted small">Select CBs are scored from their resumes, so a full run of about 1,400 people takes longer and costs more than BDR or WPC.</p>
+      )}
 
       {error && <p className="error">{error}</p>}
 
@@ -270,7 +276,7 @@ function FragmentRow(props: {
         <td>{rank}</td>
         <td>
           <strong>{row.name}</strong>
-          <div className="muted small">{row.jobTitle}</div>
+          <div className="muted small">{row.jobTitle || row.subtitle}</div>
         </td>
         <td>
           {row.result ? (
