@@ -4,9 +4,12 @@ const API = "https://api.airtable.com/v0";
 
 export const JOBS_TABLE = "Job Description Links";
 
-// Candidate pools: one Airtable table per pool. All pools share the same columns.
-export const POOLS = ["BDR", "WPC"] as const;
+// Candidate pools: one Airtable table per pool. BDR and WPC share the same profile columns.
+// Select CBs only have tier info and a resume, so they are scored from the resume PDF.
+export const POOLS = ["BDR", "WPC", "Select CBs"] as const;
 export type Pool = (typeof POOLS)[number];
+
+const POOL_TABLES: Record<Pool, string> = { BDR: "BDR", WPC: "WPC", "Select CBs": "tblbT2o0Il8cjaKaJ" };
 
 export function isPool(value: unknown): value is Pool {
   return typeof value === "string" && (POOLS as readonly string[]).includes(value);
@@ -29,6 +32,7 @@ export type Candidate = {
   skills: string;
   projects: string;
   resumeUrl: string | null;
+  subtitle: string;
 };
 
 function env(name: string): string {
@@ -91,7 +95,7 @@ function toJob(record: AirtableRecord): Job {
 
 function toCandidate(record: AirtableRecord): Candidate {
   const f = record.fields;
-  const name = [text(f.FIRST_NAME), text(f.LAST_NAME)].filter(Boolean).join(" ");
+  const name = text(f.NAME) || [text(f.FIRST_NAME), text(f.LAST_NAME)].filter(Boolean).join(" ");
   return {
     id: record.id,
     name: name || text(f.EMAIL) || record.id,
@@ -107,6 +111,7 @@ function toCandidate(record: AirtableRecord): Candidate {
       firstAttachmentUrl(f["Resume from Outlier Attachment"]) ||
       text(f["Resume from Outlier URL"]) ||
       null,
+    subtitle: [text(f.TIER_LEVEL), text(f.TEAM_FROZEN)].filter(Boolean).join(" · "),
   };
 }
 
@@ -119,11 +124,11 @@ export async function getJob(id: string): Promise<Job> {
 }
 
 export async function listCandidates(pool: Pool): Promise<Candidate[]> {
-  return (await listAll(pool)).map(toCandidate);
+  return (await listAll(POOL_TABLES[pool])).map(toCandidate);
 }
 
 export async function getCandidate(pool: Pool, id: string): Promise<Candidate> {
-  return toCandidate(await getRecord(pool, id));
+  return toCandidate(await getRecord(POOL_TABLES[pool], id));
 }
 
 // Downloads a PDF (job description or resume) and returns it base64-encoded for Claude.
@@ -135,4 +140,19 @@ export async function downloadPdfBase64(url: string): Promise<string | null> {
   const bytes = Buffer.from(await res.arrayBuffer());
   const looksLikePdf = type.includes("pdf") || bytes.subarray(0, 4).toString() === "%PDF";
   return looksLikePdf ? bytes.toString("base64") : null;
+}
+
+// Only fetch files hosted by Airtable (candidate lists send resume links back from the browser).
+export function isAirtableFile(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === "https:" && (hostname === "dl.airtable.com" || hostname.endsWith(".airtableusercontent.com"));
+  } catch {
+    return false;
+  }
+}
+
+// True when a candidate has profile text to score from (BDR/WPC); Select CBs only have a resume.
+export function hasProfileText(c: Candidate): boolean {
+  return Boolean(c.jobTitle || c.company || c.experience || c.education || c.skills || c.projects);
 }

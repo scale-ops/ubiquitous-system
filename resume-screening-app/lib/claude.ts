@@ -97,9 +97,27 @@ function profileText(c: Candidate): string {
   ].join("\n");
 }
 
-// Step 2: quick score for a batch of candidates using their Airtable profile fields.
-export async function scoreCandidates(jobSummary: string, candidates: Candidate[]): Promise<Score[]> {
-  const profiles = candidates.map(profileText).join("\n\n---\n\n");
+// Step 2: quick score for a batch of candidates using their Airtable profile fields,
+// plus the resume PDF for candidates who have no profile text (Select CBs).
+export async function scoreCandidates(
+  jobSummary: string,
+  candidates: Candidate[],
+  resumes: Record<string, string | null> = {},
+): Promise<Score[]> {
+  const content: Anthropic.Beta.BetaContentBlockParam[] = [
+    {
+      type: "text",
+      text: `Score each of these ${candidates.length} candidates against the job requirements.
+Return exactly one result per candidate, using the same id.
+Where a resume is attached for a candidate, judge them mainly on that resume.
+Scoring guide: 80-100 Strong fit (meets all must-haves), 50-79 Possible fit, 0-49 Weak fit.`,
+    },
+  ];
+  for (const c of candidates) {
+    content.push({ type: "text", text: `---\n${profileText(c)}` });
+    const resume = resumes[c.id];
+    if (resume) content.push(pdfBlock(resume, `Resume for candidate id ${c.id}`));
+  }
   const message = await client.beta.messages.parse({
     ...FALLBACK,
     model: MODEL,
@@ -110,16 +128,7 @@ export async function scoreCandidates(jobSummary: string, candidates: Candidate[
       // The job summary is the same for every batch, so cache it.
       { type: "text", text: `Job requirements:\n${jobSummary}`, cache_control: { type: "ephemeral" } },
     ],
-    messages: [
-      {
-        role: "user",
-        content: `Score each of these ${candidates.length} candidates against the job requirements.
-Return exactly one result per candidate, using the same id.
-Scoring guide: 80-100 Strong fit (meets all must-haves), 50-79 Possible fit, 0-49 Weak fit.
-
-${profiles}`,
-      },
-    ],
+    messages: [{ role: "user", content }],
   });
   assertAnswered(message);
   const results = message.parsed_output?.results ?? [];
