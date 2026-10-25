@@ -4,6 +4,9 @@ const API = "https://api.airtable.com/v0";
 
 export const JOBS_TABLE = "Job Description Links";
 
+// People allowed to sign in: Internal Team rows with Status = Active.
+const TEAM_TABLE = "tblncVYLpY2aTSli1";
+
 // Candidate pools: one Airtable table per pool. BDR and WPC share the same profile columns.
 // Select CBs only have tier info and a resume, so they are scored from the resume PDF.
 export const POOLS = ["BDR", "WPC", "Select CBs"] as const;
@@ -129,6 +132,23 @@ export async function listCandidates(pool: Pool): Promise<Candidate[]> {
 
 export async function getCandidate(pool: Pool, id: string): Promise<Candidate> {
   return toCandidate(await getRecord(POOL_TABLES[pool], id));
+}
+
+export type TeamMember = { id: string; email: string; name: string; role: string };
+
+// Finds an Active Internal Team member by email (case-insensitive), or null.
+export async function findActiveTeamMember(email: string): Promise<TeamMember | null> {
+  const clean = email.trim().toLowerCase();
+  // Emails with quotes or backslashes can't be real sign-in addresses; refusing them keeps the formula safe.
+  if (!/^[^\s@'"\\]+@[^\s@'"\\]+$/.test(clean)) return null;
+  const formula = `AND(LOWER(TRIM({Email}))='${clean}', {Status}='Active')`;
+  const params = new URLSearchParams({ filterByFormula: formula, maxRecords: "1" });
+  const res = await airtableFetch(`${TEAM_TABLE}?${params}`);
+  const { records } = (await res.json()) as { records: AirtableRecord[] };
+  const record = records[0];
+  if (!record) return null;
+  const f = record.fields;
+  return { id: record.id, email: clean, name: text(f["First and Last Name"]), role: text(f.Roll) };
 }
 
 // Downloads a PDF (job description or resume) and returns it base64-encoded for Claude.

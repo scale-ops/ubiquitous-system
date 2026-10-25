@@ -1,8 +1,32 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { SESSION_COOKIE, googleSignInEnabled, unseal, type Session } from "@/lib/session";
 
-// Password-protects the whole app (candidate data is private).
-// The browser shows a login box: any username, password = APP_PASSWORD.
-export function proxy(request: NextRequest) {
+// Protects every page and API route (candidate data is private).
+// With Google settings present, people sign in with Google and must be Active in the Internal Team table.
+// Without them (for example a local copy), the old shared password still works:
+// the browser shows a login box, any username, password = APP_PASSWORD.
+
+// Pages that must open without signing in.
+const PUBLIC_PATHS = ["/signin", "/api/auth/"];
+
+function isPublic(pathname: string): boolean {
+  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p));
+}
+
+export async function proxy(request: NextRequest) {
+  const { pathname, search } = request.nextUrl;
+  if (googleSignInEnabled()) {
+    if (isPublic(pathname)) return NextResponse.next();
+    const session = await unseal<Session>(request.cookies.get(SESSION_COOKIE)?.value);
+    if (session) return NextResponse.next();
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Your sign-in has expired. Reload the page to sign in again." }, { status: 401 });
+    }
+    const signin = new URL("/signin", request.url);
+    signin.searchParams.set("returnTo", `${pathname}${search}`);
+    return NextResponse.redirect(signin);
+  }
+
   const password = process.env.APP_PASSWORD;
   if (!password) {
     return new NextResponse("Set the APP_PASSWORD environment variable to use this app.", { status: 503 });
