@@ -1,0 +1,13 @@
+# Installed packages and build output
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Secrets: real values live only in Vercel and in .env.local on your own computer
+.env
+.env.local
+.env*.local
+
+# Mac clutter
+.DS_Store
