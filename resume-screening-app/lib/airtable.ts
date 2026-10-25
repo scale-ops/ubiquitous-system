@@ -151,6 +151,24 @@ export async function findActiveTeamMember(email: string): Promise<TeamMember | 
   return { id: record.id, email: clean, name: text(f["First and Last Name"]), role: text(f.Roll) };
 }
 
+// Interviewers: Internal Team rows with Roll = Workforce Manager and Status = Active.
+export async function listActiveWorkforceManagers(): Promise<TeamMember[]> {
+  const params = new URLSearchParams({
+    filterByFormula: "AND({Roll}='Workforce Manager', {Status}='Active')",
+    pageSize: "100",
+  });
+  const res = await airtableFetch(`${TEAM_TABLE}?${params}`);
+  const { records } = (await res.json()) as { records: AirtableRecord[] };
+  return records
+    .map((r) => ({
+      id: r.id,
+      email: text(r.fields.Email).toLowerCase(),
+      name: text(r.fields["First and Last Name"]),
+      role: text(r.fields.Roll),
+    }))
+    .filter((m) => m.email.includes("@"));
+}
+
 // Downloads a PDF (job description or resume) and returns it base64-encoded for Claude.
 // Airtable attachment links expire after a few hours, so always fetch a fresh record first.
 export async function downloadPdfBase64(url: string): Promise<string | null> {
