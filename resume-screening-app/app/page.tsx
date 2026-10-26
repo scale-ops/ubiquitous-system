@@ -78,6 +78,12 @@ function when(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+type SortKey = "fit" | "name" | "active" | "qms" | "qc";
+
+function score2(n: number | null): string {
+  return n == null ? "—" : n.toFixed(2);
+}
+
 function daysAgo(iso: string): string {
   if (!iso) return "—";
   const d = Math.floor((Date.now() - Date.parse(iso)) / 86_400_000);
@@ -173,27 +179,36 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "fit", dir: -1 });
+  const [showMinQms, setShowMinQms] = useState("");
+  const [showMinQc, setShowMinQc] = useState("");
 
   const allCountries = useMemo(
     () => [...countries, ...otherCountries.split(/[,\s]+/).map((c) => c.trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c))],
     [countries, otherCountries],
   );
 
-  const search = useCallback(async () => {
+  const search = useCallback(async (keepSelection = false) => {
     setBusy("Finding candidates…");
     setError("");
     try {
-      const d = await api<{ candidates: Found[]; more: boolean }>("/api/screen/search", {
+      const body = {
         rampId: ramp.id,
         countries: allCountries,
         activeDays: activeDays ? Number(activeDays) : null,
         hasResume,
         minQms: minQms === "" ? null : Number(minQms),
         minQc: minQc === "" ? null : Number(minQc),
+      };
+      // One automatic retry if the connection hiccups ("Failed to fetch").
+      const d = await api<{ candidates: Found[]; more: boolean }>("/api/screen/search", body).catch(async (e) => {
+        if (!(e instanceof TypeError)) throw e;
+        await new Promise((r) => setTimeout(r, 2000));
+        return api<{ candidates: Found[]; more: boolean }>("/api/screen/search", body);
       });
       setFound(d.candidates);
       setMore(d.more);
-      setSelected(new Set());
+      if (!keepSelection) setSelected(new Set());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -203,7 +218,7 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
 
   async function scoreAll() {
     if (!found || !ramp.jobId) return;
-    const todo = found.filter((c) => !c.result);
+    const todo = found.filter((c) => !c.result && (selected.size === 0 || selected.has(c.id)));
     if (!todo.length) return;
     setBusy("Reading the job description…");
     setError("");
@@ -222,7 +237,7 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
         }
       };
       await Promise.all(Array.from({ length: PARALLEL }, worker));
-      await search();
+      await search(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -262,10 +277,38 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
   }
 
   const rows = useMemo(() => {
-    const list = (found ?? []).filter((c) => verdict === "All" || (verdict === "Not scored" ? !c.result : c.result?.verdict === verdict));
-    return list.sort((a, b) => (b.result?.score ?? -1) - (a.result?.score ?? -1));
-  }, [found, verdict]);
+    const qmsMin = showMinQms === "" ? null : Number(showMinQms);
+    const qcMin = showMinQc === "" ? null : Number(showMinQc);
+    const list = (found ?? [])
+      .filter((c) => verdict === "All" || (verdict === "Not scored" ? !c.result : c.result?.verdict === verdict))
+      .filter((c) => qmsMin == null || (c.qms ?? -1) >= qmsMin)
+      .filter((c) => qcMin == null || (c.qc ?? -1) >= qcMin);
+    const value = (c: Found): number | string => {
+      if (sort.key === "fit") return c.result?.score ?? -1;
+      if (sort.key === "qms") return c.qms ?? -1;
+      if (sort.key === "qc") return c.qc ?? -1;
+      if (sort.key === "active") return Date.parse(c.lastActive) || 0;
+      return c.name.toLowerCase();
+    };
+    return list.sort((a, b) => {
+      const x = value(a);
+      const y = value(b);
+      return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
+    });
+  }, [found, verdict, sort, showMinQms, showMinQc]);
   const unscored = found?.filter((c) => !c.result).length ?? 0;
+  const tickedUnscored = found?.filter((c) => !c.result && selected.has(c.id)).length ?? 0;
+  const scoreLabel =
+    selected.size > 0
+      ? tickedUnscored > 0
+        ? `Score ${tickedUnscored} ticked with Claude`
+        : "Ticked candidates are already scored"
+      : unscored > 0
+        ? `Score all ${unscored} unscored with Claude`
+        : "All candidates scored ✓";
+  const sortBy = (key: SortKey) =>
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: key === "name" ? 1 : -1 }));
+  const arrow = (key: SortKey) => (sort.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : "");
 
   return (
     <>
@@ -311,7 +354,7 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
             <input type="checkbox" checked={hasResume} onChange={(e) => setHasResume(e.target.checked)} />
             <span>Has a résumé</span>
           </label>
-          <button className="primary" onClick={search} disabled={Boolean(busy)}>
+          <button className="primary" onClick={() => search()} disabled={Boolean(busy)}>
             Find candidates
           </button>
         </div>
@@ -341,20 +384,29 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
                 </button>
               ))}
             </div>
+            <label className="inline">
+              QMS ≥
+              <input type="number" step="0.1" value={showMinQms} onChange={(e) => setShowMinQms(e.target.value)} placeholder="any" />
+            </label>
+            <label className="inline">
+              QC ≥
+              <input type="number" step="0.1" value={showMinQc} onChange={(e) => setShowMinQc(e.target.value)} placeholder="any" />
+            </label>
+            <span className="muted small">{rows.length} shown</span>
           </div>
           <div className="actions">
-            <button onClick={scoreAll} disabled={Boolean(busy) || !unscored || !ramp.jobId}>
-              Score {unscored} with Claude
+            <button onClick={scoreAll} disabled={Boolean(busy) || !ramp.jobId || (selected.size > 0 ? !tickedUnscored : !unscored)}>
+              {scoreLabel}
             </button>
             <button className="primary" onClick={previewSend} disabled={Boolean(busy) || !selected.size}>
               Send pre-interview ({selected.size})
             </button>
             {!ramp.jobId && <span className="muted small">Link a job (with its PDF) to the ramp to score.</span>}
           </div>
-          <table>
+          <table className="found">
             <thead>
               <tr>
-                <th>
+                <th className="pickcol">
                   <input
                     type="checkbox"
                     aria-label="Select all shown"
@@ -362,11 +414,12 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
                     onChange={(e) => setSelected(e.target.checked ? new Set(rows.slice(0, 50).map((r) => r.id)) : new Set())}
                   />
                 </th>
-                <th>Candidate</th>
-                <th>Fit</th>
+                <th><button className="sort" onClick={() => sortBy("name")}>Candidate{arrow("name")}</button></th>
+                <th><button className="sort" onClick={() => sortBy("fit")}>Fit{arrow("fit")}</button></th>
                 <th>Country</th>
-                <th>Active</th>
-                <th>QMS / QC</th>
+                <th><button className="sort" onClick={() => sortBy("active")}>Active{arrow("active")}</button></th>
+                <th><button className="sort" onClick={() => sortBy("qms")}>QMS{arrow("qms")}</button></th>
+                <th><button className="sort" onClick={() => sortBy("qc")}>QC{arrow("qc")}</button></th>
                 <th>Résumé</th>
               </tr>
             </thead>
@@ -434,24 +487,23 @@ function FoundRow({ c, open, onToggle, checked, onCheck }: { c: Found; open: boo
   return (
     <>
       <tr className="clickable" onClick={onToggle}>
-        <td onClick={(e) => e.stopPropagation()}>
+        <td className="pickcol" onClick={(e) => e.stopPropagation()}>
           <input type="checkbox" checked={checked} onChange={onCheck} aria-label={`Select ${c.name}`} />
         </td>
         <td>
           <strong>{c.name}</strong>
-          <div className="muted small">{c.result?.summary || c.team}</div>
+          <div className="muted small clamp">{c.result?.summary || c.team}</div>
         </td>
         <td>{c.result ? <span className={`badge ${badge(c.result.verdict)}`}>{c.result.score} · {c.result.verdict}</span> : <span className="muted small">not scored</span>}</td>
         <td>{c.country || "—"}</td>
         <td>{daysAgo(c.lastActive)}</td>
-        <td>
-          {c.qms ?? "—"} / {c.qc ?? "—"}
-        </td>
+        <td>{score2(c.qms)}</td>
+        <td>{score2(c.qc)}</td>
         <td>{c.hasResume ? "✓" : "—"}</td>
       </tr>
       {open && (
         <tr className="details">
-          <td colSpan={7}>
+          <td colSpan={8}>
             {c.result && (
               <div className="grid">
                 <div>
