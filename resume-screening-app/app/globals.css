@@ -46,3 +46,36 @@ tr.details td { background: #fcfcfd; }
 .flags { margin: 4px 0 8px; padding-left: 18px; color: #b42318; font-size: 13px; }
 .chips.small .chip { padding: 4px 10px; font-size: 13px; }
 span.chip { border: 1px solid #d1d5db; background: #fff; }
+.userbar { display: flex; justify-content: flex-end; gap: 16px; align-items: center; padding: 10px 20px; font-size: 14px; color: #6b7280; }
+.userbar a { color: #2563eb; text-decoration: none; }
+main.signin { max-width: 440px; padding-top: 12vh; text-align: center; }
+main.signin .card { padding: 32px 28px; }
+a.button { display: inline-block; font: inherit; padding: 10px 18px; border-radius: 8px; border: 1px solid #d1d5db; text-decoration: none; color: inherit; margin-top: 8px; }
+a.button.primary { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 600; }
+.userbar nav { margin-right: auto; display: flex; gap: 16px; }
+.rampform { display: flex; flex-direction: column; gap: 14px; }
+.rampform input, .rampform textarea { font: inherit; }
+.rampform textarea { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; }
+fieldset { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 14px; }
+legend { font-weight: 600; font-size: 14px; padding: 0 6px; }
+.pickers { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 16px; }
+label.pick { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; }
+label.pick input { min-width: 0; }
+main.book { max-width: 640px; padding-top: 6vh; }
+main.book .when { font-size: 18px; font-weight: 600; line-height: 1.5; }
+main.book .day { margin-top: 16px; }
+main.book .times { display: flex; flex-wrap: wrap; gap: 8px; }
+main.book .times button { min-width: 92px; }
+main.book .times button:hover { border-color: #2563eb; color: #2563eb; }
+main.book .zone { flex-direction: row; align-items: center; gap: 10px; font-weight: 400; margin: 8px 0; }
+main.book .zone select { min-width: 0; }
+main.book .confirm { background: #f9fafb; border-radius: 8px; padding: 12px 16px; margin-top: 12px; }
+.tabs { margin: 8px 0; }
+.rampinfo { display: flex; flex-direction: column; gap: 4px; }
+.modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; z-index: 10; overflow-y: auto; }
+.modal .card { max-width: 680px; width: 100%; }
+ul.checks { list-style: none; padding-left: 0; margin: 0; }
+ul.checks li { margin: 2px 0; }
+ul.checks li.fail { color: #b42318; }
+ul.checks li.warn { color: #854d0e; }
+ul.checks li.pass { color: #166534; }
