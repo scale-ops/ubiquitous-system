@@ -6,8 +6,10 @@ import { SESSION_COOKIE, googleSignInEnabled, unseal, type Session } from "@/lib
 // Without them (for example a local copy), the old shared password still works:
 // the browser shows a login box, any username, password = APP_PASSWORD.
 
-// Pages that must open without signing in.
+// Pages that must open without signing in: the sign-in itself, and candidates' private booking
+// links (the secret code in the link is their key).
 const PUBLIC_PATHS = ["/signin", "/api/auth/"];
+const CANDIDATE_PATHS = ["/book/", "/api/book/"];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p));
@@ -15,6 +17,7 @@ function isPublic(pathname: string): boolean {
 
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+  if (CANDIDATE_PATHS.some((p) => pathname.startsWith(p))) return NextResponse.next();
   if (googleSignInEnabled()) {
     if (isPublic(pathname)) return NextResponse.next();
     const session = await unseal<Session>(request.cookies.get(SESSION_COOKIE)?.value);

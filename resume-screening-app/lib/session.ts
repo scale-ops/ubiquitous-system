@@ -59,6 +59,13 @@ export async function currentUser(cookieValue: string | undefined): Promise<Sess
   return unseal<Session>(cookieValue);
 }
 
+// Fingerprint of a candidate's private booking code. Only this is stored in Airtable, so someone
+// who can read the table still can't use it to book.
+export async function codeHash(code: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(code));
+  return Buffer.from(digest).toString("hex");
+}
+
 export function randomToken(bytes = 32): string {
   return base64url(crypto.getRandomValues(new Uint8Array(bytes)));
 }

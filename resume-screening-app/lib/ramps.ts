@@ -1,7 +1,26 @@
 // Checks what a recruiter typed for a ramp before it's saved, and works out a ramp's open spots.
-import { RAMP_STATUSES, listActiveWorkforceManagers, upcomingInterviews, type Ramp, type RampInput, type TeamMember } from "./airtable";
-import { freeBusy, testMode } from "./google";
-import { bookingRules, dayKey, findSlots, isValidTimeZone, rampRules, summarizeByDay, zonedTimeToUtc, type Interviewer } from "./scheduling";
+import {
+  RAMP_STATUSES,
+  listActiveWorkforceManagers,
+  upcomingInterviews,
+  type Ramp,
+  type RampInput,
+  type TeamMember,
+  type UpcomingInterview,
+} from "./airtable";
+import { freeBusy, testMode, type FreeBusyResult } from "./google";
+import {
+  bookingRules,
+  dayKey,
+  findSlots,
+  isValidTimeZone,
+  rampRules,
+  summarizeByDay,
+  zonedTimeToUtc,
+  type BookingRules,
+  type Interviewer,
+  type Slot,
+} from "./scheduling";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -72,8 +91,10 @@ export type RampAvailability = {
 };
 
 // Open interview spots for a ramp: reads its interviewers' calendars and applies its rules.
-export async function rampAvailability(ramp: Ramp, now = new Date()): Promise<RampAvailability> {
-  const rules = rampRules(bookingRules(), {
+// Booking rules for a ramp (or the defaults when there's no ramp).
+export function rulesForRamp(ramp: Ramp | null): BookingRules {
+  if (!ramp) return bookingRules();
+  return rampRules(bookingRules(), {
     timeZone: ramp.timeZone,
     hoursStart: ramp.hoursStart ?? undefined,
     hoursEnd: ramp.hoursEnd ?? undefined,
@@ -81,39 +102,62 @@ export async function rampAvailability(ramp: Ramp, now = new Date()): Promise<Ra
     endDate: ramp.endDate,
     maxPerDay: ramp.maxPerDay ?? undefined,
   });
-  const active = await listActiveWorkforceManagers();
-  const byId = new Map<string, TeamMember>(active.map((m) => [m.id, m]));
-  const chosen = ramp.interviewerIds.map((id) => byId.get(id)).filter((m): m is TeamMember => Boolean(m));
-  const inactive = ramp.interviewerIds.filter((id) => !byId.has(id)).length;
+}
 
-  // Ask Google for busy times from now to the end of the ramp's window.
-  const today = dayKey(now, rules.timeZone);
-  const lastDay = rules.lastDay ?? dayKey(new Date(now.getTime() + rules.daysAhead * 86_400_000), rules.timeZone);
-  const [y, m, d] = lastDay.split("-").map(Number);
+// Last day of the booking window, as YYYY-MM-DD in the rules' time zone.
+export function lastWindowDay(rules: BookingRules, now: Date): string {
+  return rules.lastDay ?? dayKey(new Date(now.getTime() + rules.daysAhead * 86_400_000), rules.timeZone);
+}
+
+export type SlotResult = {
+  slots: Slot[];
+  busyByEmail: Map<string, FreeBusyResult>;
+  upcoming: UpcomingInterview[];
+};
+
+// Reads the interviewers' calendars and booked interviews, then lists the open slots.
+export async function computeSlots(rules: BookingRules, members: TeamMember[], now: Date): Promise<SlotResult> {
+  const [y, m, d] = lastWindowDay(rules, now).split("-").map(Number);
   const windowEnd = zonedTimeToUtc(y, m, d + 1, 0, 0, rules.timeZone);
-  const busy = windowEnd > now ? await freeBusy(chosen.map((c) => c.email), now.toISOString(), windowEnd.toISOString()) : [];
+  const [busy, upcoming] = await Promise.all([
+    windowEnd > now && members.length
+      ? freeBusy(members.map((c) => c.email), now.toISOString(), windowEnd.toISOString())
+      : Promise.resolve([] as FreeBusyResult[]),
+    upcomingInterviews(),
+  ]);
   const busyByEmail = new Map(busy.map((b) => [b.email, b]));
 
   // Interviews already booked per interviewer per day, for the daily limit.
+  const emailOf = new Map(members.map((mm) => [mm.id, mm.email]));
   const booked: Record<string, Record<string, number>> = {};
-  if (rules.maxPerDay) {
-    for (const iv of await upcomingInterviews()) {
-      for (const id of iv.interviewerIds) {
-        const member = byId.get(id);
-        if (!member) continue;
-        const key = dayKey(iv.start, rules.timeZone);
-        (booked[member.email] ??= {})[key] = (booked[member.email][key] ?? 0) + 1;
-      }
+  for (const iv of upcoming) {
+    for (const id of iv.interviewerIds) {
+      const email = emailOf.get(id);
+      if (!email) continue;
+      const key = dayKey(iv.start, rules.timeZone);
+      (booked[email] ??= {})[key] = (booked[email][key] ?? 0) + 1;
     }
   }
 
-  const visible: Interviewer[] = chosen
+  const visible: Interviewer[] = members
     .filter((c) => !busyByEmail.get(c.email)?.error)
     .map((c) => ({
       email: c.email,
       busy: (busyByEmail.get(c.email)?.busy ?? []).map((b) => ({ start: new Date(b.start), end: new Date(b.end) })),
     }));
-  const days = summarizeByDay(findSlots(visible, rules, now, booked), rules.timeZone);
+  return { slots: findSlots(visible, rules, now, booked), busyByEmail, upcoming };
+}
+
+export async function rampAvailability(ramp: Ramp, now = new Date()): Promise<RampAvailability> {
+  const rules = rulesForRamp(ramp);
+  const active = await listActiveWorkforceManagers();
+  const byId = new Map<string, TeamMember>(active.map((m) => [m.id, m]));
+  const chosen = ramp.interviewerIds.map((id) => byId.get(id)).filter((m): m is TeamMember => Boolean(m));
+  const inactive = ramp.interviewerIds.filter((id) => !byId.has(id)).length;
+  const today = dayKey(now, rules.timeZone);
+  const lastDay = lastWindowDay(rules, now);
+  const { slots, busyByEmail } = await computeSlots(rules, chosen, now);
+  const days = summarizeByDay(slots, rules.timeZone);
   const nameOf = new Map(chosen.map((c) => [c.email, c.name || c.email]));
 
   return {

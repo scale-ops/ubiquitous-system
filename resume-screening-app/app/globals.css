@@ -61,3 +61,12 @@ legend { font-weight: 600; font-size: 14px; padding: 0 6px; }
 .pickers { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 16px; }
 label.pick { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; }
 label.pick input { min-width: 0; }
+main.book { max-width: 640px; padding-top: 6vh; }
+main.book .when { font-size: 18px; font-weight: 600; line-height: 1.5; }
+main.book .day { margin-top: 16px; }
+main.book .times { display: flex; flex-wrap: wrap; gap: 8px; }
+main.book .times button { min-width: 92px; }
+main.book .times button:hover { border-color: #2563eb; color: #2563eb; }
+main.book .zone { flex-direction: row; align-items: center; gap: 10px; font-weight: 400; margin: 8px 0; }
+main.book .zone select { min-width: 0; }
+main.book .confirm { background: #f9fafb; border-radius: 8px; padding: 12px 16px; margin-top: 12px; }

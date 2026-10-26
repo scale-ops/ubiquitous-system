@@ -207,6 +207,82 @@ export async function upcomingInterviews(): Promise<UpcomingInterview[]> {
   return out;
 }
 
+// ---- Interviews ----
+
+export type InterviewStatus = "Invite drafted" | "Invite sent" | "Scheduled" | "Completed" | "No-show" | "Cancelled" | "Link expired";
+
+export type Interview = {
+  id: string;
+  status: InterviewStatus;
+  candidateName: string;
+  candidateEmail: string;
+  workerId: string;
+  jobId: string | null;
+  rampId: string | null;
+  offeredIds: string[];
+  interviewerId: string | null;
+  start: string;
+  end: string;
+  meetLink: string;
+  eventId: string;
+  linkExpires: string;
+};
+
+function toInterview(record: AirtableRecord): Interview {
+  const f = record.fields;
+  const first = (v: unknown) => ((v as string[] | undefined) ?? [])[0] ?? null;
+  return {
+    id: record.id,
+    status: (text(f.Status) || "Invite drafted") as InterviewStatus,
+    candidateName: text(f["Candidate Name"]),
+    candidateEmail: text(f["Candidate Email"]).toLowerCase(),
+    workerId: text(f["Worker ID"]),
+    jobId: first(f.Job),
+    rampId: first(f.Ramp),
+    offeredIds: (f["Interviewers Offered"] as string[] | undefined) ?? [],
+    interviewerId: first(f.Interviewer),
+    start: text(f.Start),
+    end: text(f.End),
+    meetLink: text(f["Meet Link"]),
+    eventId: text(f["Calendar Event ID"]),
+    linkExpires: text(f["Link Expires"]),
+  };
+}
+
+// The interview whose private booking link has this fingerprint, or null.
+export async function findInterviewByCode(codeHash: string): Promise<Interview | null> {
+  if (!/^[0-9a-f]{64}$/.test(codeHash)) return null;
+  const params = new URLSearchParams({ filterByFormula: `{Booking Code Check}='${codeHash}'`, maxRecords: "2" });
+  const res = await airtableFetch(`${INTERVIEWS_TABLE}?${params}`);
+  const { records } = (await res.json()) as { records: AirtableRecord[] };
+  return records.length === 1 ? toInterview(records[0]) : null;
+}
+
+export async function getInterview(id: string): Promise<Interview> {
+  return toInterview(await getRecord(INTERVIEWS_TABLE, id));
+}
+
+export async function markInterviewScheduled(
+  id: string,
+  booking: { interviewerId: string; start: string; end: string; timeZone: string; meetLink: string; eventId: string },
+): Promise<void> {
+  await airtableFetch(`${INTERVIEWS_TABLE}/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: {
+      fields: {
+        Status: "Scheduled",
+        Interviewer: [booking.interviewerId],
+        Start: booking.start,
+        End: booking.end,
+        "Candidate Time Zone": booking.timeZone,
+        "Meet Link": booking.meetLink,
+        "Calendar Event ID": booking.eventId,
+        "Booked At": new Date().toISOString(),
+      },
+    },
+  });
+}
+
 // ---- Ramps ----
 
 export const RAMPS_TABLE = "tblZlesc5Tg4OvVJJ";
