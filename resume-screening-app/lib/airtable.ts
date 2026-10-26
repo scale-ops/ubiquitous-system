@@ -447,7 +447,7 @@ export const POOL_TABLE = "tblLe5hlGq09KlQCu";
 const POOL_FIELDS = [
   "WORKER_ID", "FIRST_NAME", "LAST_NAME", "EMAIL", "IP_COUNTRY_CODE", "WORKER_TEAM_NAME", "WORKER_SOURCE",
   "JOB_TITLE", "JOB_COMPANY", "JOB_EXPERIENCE", "EDUCATION", "HIGHEST_DEGREE", "WORKERSKILLS", "PROJECTS",
-  "LAST_ACTIVE", "QMS_SCORE", "QC_SCORE", "Resume Status",
+  "LAST_ACTIVE", "QMS_SCORE", "QC_SCORE", "Resume Status", "Resume from Outlier Attachment",
 ];
 
 export type PoolCandidate = Candidate & {
@@ -477,7 +477,8 @@ function toPoolCandidate(record: AirtableRecord): PoolCandidate {
     education: [text(f.EDUCATION), text(f.HIGHEST_DEGREE)].filter(Boolean).join(" · "),
     skills: text(f.WORKERSKILLS),
     projects: text(f.PROJECTS).slice(0, 4000),
-    resumeUrl: null,
+    // Attachment links expire after a few hours; only read them from a fresh record.
+    resumeUrl: firstAttachmentUrl(f["Resume from Outlier Attachment"]),
     subtitle: text(f.WORKER_TEAM_NAME),
     lastActive: text(f.LAST_ACTIVE),
     qms: num(f.QMS_SCORE),
@@ -557,10 +558,11 @@ export type ScreeningResult = {
   strengths: string[];
   gaps: string[];
   scoredAt: string;
+  deepReview: string;
 };
 
 export async function listResults(ramp: Ramp): Promise<ScreeningResult[]> {
-  const records = await listLinkedToRamp(RESULTS_TABLE, ramp.name, ["Ramp", "Worker ID", "Fit Score", "Verdict", "Summary", "Strengths", "Gaps", "Scored At"]);
+  const records = await listLinkedToRamp(RESULTS_TABLE, ramp.name, ["Ramp", "Worker ID", "Fit Score", "Verdict", "Summary", "Strengths", "Gaps", "Scored At", "Deep Review"]);
   const lines = (v: unknown) => text(v).split("\n").map((l) => l.replace(/^[-•]\s*/, "").trim()).filter(Boolean);
   return records
     .filter((r) => ((r.fields.Ramp as string[] | undefined) ?? []).includes(ramp.id))
@@ -573,6 +575,7 @@ export async function listResults(ramp: Ramp): Promise<ScreeningResult[]> {
       strengths: lines(r.fields.Strengths),
       gaps: lines(r.fields.Gaps),
       scoredAt: text(r.fields["Scored At"]),
+      deepReview: text(r.fields["Deep Review"]),
     }));
 }
 
@@ -604,6 +607,37 @@ export async function saveResults(
           },
         })),
       },
+    });
+  }
+}
+
+// Saves a deep dive: updates the candidate's existing result for the ramp, or creates one.
+// The deep dive read the full résumé, so its score replaces the quick score.
+export async function saveDeepReview(
+  ramp: Ramp,
+  candidate: PoolCandidate,
+  existingId: string | null,
+  r: { score: number; verdict: string; summary: string; strengths: string[]; gaps: string[]; review: string },
+  scoredBy: string,
+  model: string,
+): Promise<void> {
+  const fields = {
+    "Fit Score": r.score,
+    Verdict: r.verdict,
+    Summary: r.summary,
+    Strengths: r.strengths.map((s) => `- ${s}`).join("\n"),
+    Gaps: r.gaps.map((s) => `- ${s}`).join("\n"),
+    "Deep Review": r.review,
+    "Scored At": new Date().toISOString(),
+    "Scored By": scoredBy.includes("@") ? scoredBy : null,
+    Model: model,
+  };
+  if (existingId) {
+    await airtableFetch(`${RESULTS_TABLE}/${encodeURIComponent(existingId)}`, { method: "PATCH", body: { typecast: true, fields } });
+  } else {
+    await airtableFetch(RESULTS_TABLE, {
+      method: "POST",
+      body: { typecast: true, fields: { Candidate: [candidate.id], Ramp: [ramp.id], "Worker ID": candidate.workerId, ...fields } },
     });
   }
 }

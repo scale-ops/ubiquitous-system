@@ -173,3 +173,84 @@ Write a hiring-manager-ready review in Markdown with these sections:
   assertAnswered(message);
   return textOf(message.content);
 }
+
+const DeepDiveSchema = z.object({
+  score: z.number().describe("Fit score from 0 (no fit) to 100 (ideal fit)"),
+  verdict: z.enum(["Strong fit", "Possible fit", "Weak fit"]),
+  summary: z.string().describe("One or two sentences on overall fit"),
+  mustHaves: z.array(
+    z.object({
+      requirement: z.string().describe("A must-have requirement from the job description"),
+      status: z.enum(["Met", "Partly met", "Not met"]),
+      evidence: z.string().describe("What in the resume shows it, or what is missing"),
+    }),
+  ),
+  strengths: z.array(z.string()).describe("3-5 points, each tied to evidence in the resume"),
+  gaps: z.array(z.string()).describe("Gaps or risks: 2-5 points"),
+  interviewQuestions: z
+    .array(z.object({ question: z.string(), why: z.string().describe("What the answer would confirm or rule out") }))
+    .describe("3-5 questions that probe this candidate's specific gaps and claims"),
+});
+
+export type DeepDive = Omit<z.infer<typeof DeepDiveSchema>, "score"> & { score: number; review: string };
+
+const MARK = { Met: "✓", "Partly met": "◐", "Not met": "✗" } as const;
+
+function deepDiveMarkdown(d: z.infer<typeof DeepDiveSchema>, score: number): string {
+  return [
+    `## Overall fit: ${score} · ${d.verdict}`,
+    d.summary,
+    "",
+    "## Must-have requirements",
+    ...d.mustHaves.map((m) => `- ${MARK[m.status]} ${m.status}: ${m.requirement} — ${m.evidence}`),
+    "",
+    "## Strengths",
+    ...d.strengths.map((s) => `- ${s}`),
+    "",
+    "## Gaps or risks",
+    ...d.gaps.map((s) => `- ${s}`),
+    "",
+    "## Suggested interview questions",
+    ...d.interviewQuestions.map((q, i) => `${i + 1}. ${q.question}\n   Why: ${q.why}`),
+  ].join("\n");
+}
+
+// Step 3 for the Screening Hub: the same deep review as deepReview(), but structured, so the
+// score, verdict, strengths and gaps can be saved alongside the full write-up.
+export async function deepDive(options: {
+  jobName: string;
+  jobPdf: string | null;
+  jobSummary: string;
+  candidate: Candidate;
+  resumePdf: string | null;
+}): Promise<DeepDive> {
+  const { jobName, jobPdf, jobSummary, candidate, resumePdf } = options;
+  const content: Anthropic.Beta.BetaContentBlockParam[] = [];
+  if (jobPdf) content.push(pdfBlock(jobPdf, `Job description: ${jobName}`));
+  if (resumePdf) content.push(pdfBlock(resumePdf, "Candidate resume"));
+  content.push({
+    type: "text",
+    text: `${jobPdf ? "" : `Job requirements:\n${jobSummary}\n\n`}Candidate profile from our database:
+${profileText(candidate)}
+${resumePdf ? "" : "\n(No resume PDF was available; use the profile only.)\n"}
+Do a hiring-manager-ready deep review of this candidate against the job.
+Read the whole resume. List every must-have requirement from the job description and judge each one with evidence.
+Strengths and gaps should point to specific roles, projects or skills in the resume, not generic praise.
+Interview questions should probe this candidate's specific gaps and unverified claims.
+Scoring guide: 80-100 Strong fit (meets all must-haves), 50-79 Possible fit, 0-49 Weak fit.`,
+  });
+
+  const message = await client.beta.messages.parse({
+    ...FALLBACK,
+    model: MODEL,
+    max_tokens: 16000,
+    output_config: { effort: "high", format: betaZodOutputFormat(DeepDiveSchema) },
+    system: SYSTEM,
+    messages: [{ role: "user", content }],
+  });
+  assertAnswered(message);
+  const d = message.parsed_output;
+  if (!d) throw new Error("Claude didn't return a review. Try again.");
+  const score = Math.max(0, Math.min(100, Math.round(d.score)));
+  return { ...d, score, review: deepDiveMarkdown(d, score) };
+}

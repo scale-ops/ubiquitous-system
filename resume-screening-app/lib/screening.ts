@@ -2,12 +2,15 @@
 // pipeline (journeys + pre-interview answers + checks), and record decisions.
 import {
   createJourney,
+  downloadPdfBase64,
+  getJob,
   getPoolCandidates,
   getRamp,
   getRampEmailSettings,
   jobAttachment,
   listJourneys,
   listResults,
+  saveDeepReview,
   saveResults,
   submissionsByEmail,
   updateJourney,
@@ -17,7 +20,7 @@ import {
   type Ramp,
   type Submission,
 } from "./airtable";
-import { scoreCandidates } from "./claude";
+import { deepDive, scoreCandidates } from "./claude";
 import { sendEmail } from "./google";
 import { eligibility, fillTemplate, formatDeadline, preInterviewLink, templateHtml, type Check } from "./pipeline";
 import { codeHash, randomToken } from "./session";
@@ -38,18 +41,60 @@ export async function loadRamp(rampId: string): Promise<Ramp> {
 
 // ---- Scoring ----
 
+const RESUMES_PER_REQUEST = 5;
+const MAX_RESUME_BASE64 = 8_000_000; // ~6 MB file; larger résumés fall back to the profile fields
+
+async function resumePdf(c: PoolCandidate): Promise<string | null> {
+  if (!c.resumeUrl) return null;
+  const pdf = await downloadPdfBase64(c.resumeUrl).catch(() => null);
+  return pdf && pdf.length <= MAX_RESUME_BASE64 ? pdf : null;
+}
+
 export async function scoreForRamp(ramp: Ramp, jobSummary: string, candidateIds: string[], scoredBy: string) {
   if (!jobSummary) throw new UserError("The job summary is missing. Reload the page.");
   const existing = new Set((await listResults(ramp)).map((r) => r.workerId));
   const candidates = (await getPoolCandidates(candidateIds)).filter((c) => !existing.has(c.workerId));
   if (!candidates.length) return { scored: 0 };
-  const scores = await scoreCandidates(jobSummary, candidates);
+  // Claude reads each candidate's résumé PDF, a few candidates per request so requests stay small.
+  const groups: PoolCandidate[][] = [];
+  for (let i = 0; i < candidates.length; i += RESUMES_PER_REQUEST) groups.push(candidates.slice(i, i + RESUMES_PER_REQUEST));
+  const scores = (
+    await Promise.all(
+      groups.map(async (group) => {
+        const resumes: Record<string, string | null> = {};
+        await Promise.all(group.map(async (c) => (resumes[c.id] = await resumePdf(c))));
+        return scoreCandidates(jobSummary, group, resumes);
+      }),
+    )
+  ).flat();
   const byId = new Map(candidates.map((c) => [c.id, c]));
   const rows = scores
     .map((s) => ({ candidate: byId.get(s.id)!, ...s }))
     .filter((r) => r.candidate);
   await saveResults(ramp, rows, scoredBy, process.env.CLAUDE_MODEL || "claude-opus-5");
   return { scored: rows.length };
+}
+
+// Deep dive on one candidate: Claude reads the full job description and résumé, then writes a
+// must-have checklist, strengths, gaps and interview questions. Saved to Screening Results.
+export async function deepDiveForRamp(ramp: Ramp, jobSummary: string, candidateId: string, scoredBy: string) {
+  if (!ramp.jobId) throw new UserError("Link a job to the ramp first.");
+  const [candidate] = await getPoolCandidates([candidateId]);
+  if (!candidate) throw new UserError("That candidate isn't in the Candidate Pool.");
+  const job = await getJob(ramp.jobId);
+  const [jobPdf, resume, results] = await Promise.all([
+    job.fileUrl ? downloadPdfBase64(job.fileUrl) : null,
+    resumePdf(candidate),
+    listResults(ramp),
+  ]);
+  if (!jobPdf && !jobSummary) throw new UserError("The job summary is missing. Reload the page.");
+  const d = await deepDive({ jobName: job.name, jobPdf, jobSummary, candidate, resumePdf: resume });
+  const existing = results.find((r) => r.workerId === candidate.workerId);
+  await saveDeepReview(ramp, candidate, existing?.id ?? null, d, scoredBy, process.env.CLAUDE_MODEL || "claude-opus-5");
+  return {
+    result: { score: d.score, verdict: d.verdict, summary: d.summary, strengths: d.strengths, gaps: d.gaps, deepReview: d.review },
+    readResume: Boolean(resume),
+  };
 }
 
 // ---- Pre-interview ----
@@ -115,7 +160,7 @@ export type PipelineRow = {
   checks: Check[];
   submissions: number;
   ipCountry: string;
-  score: { score: number; verdict: string; summary: string } | null;
+  score: { score: number; verdict: string; summary: string; deepReview: string } | null;
 };
 
 // Journeys for the ramp, with their pre-interview answers. Links new submissions to the right
@@ -156,7 +201,7 @@ export async function pipeline(ramp: Ramp): Promise<{ rows: PipelineRow[]; unmat
       checks: latest ? eligibility(latest, settings, ipCountry, subs.length) : [],
       submissions: subs.length,
       ipCountry,
-      score: score ? { score: score.score, verdict: score.verdict, summary: score.summary } : null,
+      score: score ? { score: score.score, verdict: score.verdict, summary: score.summary, deepReview: score.deepReview } : null,
     });
   }
   return { rows, unmatched: 0 };
