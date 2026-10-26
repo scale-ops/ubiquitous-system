@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // The screener: pick a ramp, narrow the Candidate Pool, score with Claude, send pre-interviews,
 // then review answers and invite or decline. Every decision is a person's; Claude only ranks.
@@ -14,7 +14,7 @@ type Ramp = {
   applicationDeadline: string;
   interviewerIds: string[];
 };
-type Result = { score: number; verdict: string; summary: string; strengths: string[]; gaps: string[] };
+type Result = { score: number; verdict: string; summary: string; strengths: string[]; gaps: string[]; deepReview?: string };
 type Found = {
   id: string;
   workerId: string;
@@ -45,7 +45,7 @@ type Row = {
   checks: Check[];
   submissions: number;
   ipCountry: string;
-  score: { score: number; verdict: string; summary: string } | null;
+  score: { score: number; verdict: string; summary: string; deepReview: string } | null;
 };
 type Preview = { problems: string[]; preview: { to: string; subject: string; text: string } | null; willSend: number; skipped: number; sent: number };
 
@@ -182,6 +182,8 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "fit", dir: -1 });
   const [showMinQms, setShowMinQms] = useState("");
   const [showMinQc, setShowMinQc] = useState("");
+  const [diving, setDiving] = useState<Set<string>>(new Set());
+  const summaryRef = useRef<{ jobId: string; summary: string } | null>(null);
 
   const allCountries = useMemo(
     () => [...countries, ...otherCountries.split(/[,\s]+/).map((c) => c.trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c))],
@@ -216,6 +218,48 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
     }
   }, [ramp.id, allCountries, activeDays, hasResume, minQms, minQc]);
 
+  // The job summary is the same for every call, so fetch it once per job.
+  async function jobSummary(): Promise<string> {
+    if (summaryRef.current?.jobId === ramp.jobId) return summaryRef.current.summary;
+    const { summary } = await api<{ summary: string }>("/api/job-summary", { jobId: ramp.jobId });
+    summaryRef.current = { jobId: ramp.jobId!, summary };
+    return summary;
+  }
+
+  // Deep dive: Claude reads each candidate's full résumé and the job description.
+  async function deepDive(ids: string[]) {
+    if (!ramp.jobId || !ids.length) return;
+    setError("");
+    setDiving((d) => new Set([...d, ...ids]));
+    try {
+      const summary = await jobSummary();
+      const queue = [...ids];
+      const failed: string[] = [];
+      const worker = async () => {
+        while (queue.length) {
+          const id = queue.shift()!;
+          try {
+            const { result } = await api<{ result: Result }>("/api/screen/deep-dive", { rampId: ramp.id, jobSummary: summary, candidateId: id });
+            setFound((f) => f?.map((c) => (c.id === id ? { ...c, result } : c)) ?? f);
+          } catch (e) {
+            failed.push(`${found?.find((c) => c.id === id)?.name ?? id}: ${e instanceof Error ? e.message : String(e)}`);
+          } finally {
+            setDiving((d) => {
+              const n = new Set(d);
+              n.delete(id);
+              return n;
+            });
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: PARALLEL }, worker));
+      if (failed.length) setError(`Deep dive failed for ${failed.join("; ")}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setDiving(new Set());
+    }
+  }
+
   async function scoreAll() {
     if (!found || !ramp.jobId) return;
     const todo = found.filter((c) => !c.result && (selected.size === 0 || selected.has(c.id)));
@@ -223,7 +267,7 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
     setBusy("Reading the job description…");
     setError("");
     try {
-      const { summary } = await api<{ summary: string }>("/api/job-summary", { jobId: ramp.jobId });
+      const summary = await jobSummary();
       const batches: string[][] = [];
       for (let i = 0; i < todo.length; i += 20) batches.push(todo.slice(i, i + 20).map((c) => c.id));
       setProgress({ done: 0, total: todo.length });
@@ -398,6 +442,9 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
             <button onClick={scoreAll} disabled={Boolean(busy) || !ramp.jobId || (selected.size > 0 ? !tickedUnscored : !unscored)}>
               {scoreLabel}
             </button>
+            <button onClick={() => deepDive([...selected])} disabled={Boolean(busy) || !ramp.jobId || !selected.size || diving.size > 0}>
+              {diving.size > 0 ? `Deep diving… ${diving.size} left` : `Deep dive ticked (${selected.size})`}
+            </button>
             <button className="primary" onClick={previewSend} disabled={Boolean(busy) || !selected.size}>
               Send pre-interview ({selected.size})
             </button>
@@ -431,6 +478,9 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
                   open={open === c.id}
                   onToggle={() => setOpen(open === c.id ? null : c.id)}
                   checked={selected.has(c.id)}
+                  diving={diving.has(c.id)}
+                  canDive={Boolean(ramp.jobId)}
+                  onDive={() => deepDive([c.id])}
                   onCheck={() => {
                     const s = new Set(selected);
                     if (s.has(c.id)) s.delete(c.id);
@@ -483,7 +533,17 @@ function FindAndScore({ ramp, onSent }: { ramp: Ramp; onSent: () => void }) {
   );
 }
 
-function FoundRow({ c, open, onToggle, checked, onCheck }: { c: Found; open: boolean; onToggle: () => void; checked: boolean; onCheck: () => void }) {
+function FoundRow(props: {
+  c: Found;
+  open: boolean;
+  onToggle: () => void;
+  checked: boolean;
+  onCheck: () => void;
+  diving: boolean;
+  canDive: boolean;
+  onDive: () => void;
+}) {
+  const { c, open, onToggle, checked, onCheck, diving, canDive, onDive } = props;
   return (
     <>
       <tr className="clickable" onClick={onToggle}>
@@ -494,7 +554,18 @@ function FoundRow({ c, open, onToggle, checked, onCheck }: { c: Found; open: boo
           <strong>{c.name}</strong>
           <div className="muted small clamp">{c.result?.summary || c.team}</div>
         </td>
-        <td>{c.result ? <span className={`badge ${badge(c.result.verdict)}`}>{c.result.score} · {c.result.verdict}</span> : <span className="muted small">not scored</span>}</td>
+        <td>
+          {diving ? (
+            <span className="muted small">deep diving…</span>
+          ) : c.result ? (
+            <>
+              <span className={`badge ${badge(c.result.verdict)}`}>{c.result.score} · {c.result.verdict}</span>
+              {c.result.deepReview && <div className="muted small">deep dive ✓</div>}
+            </>
+          ) : (
+            <span className="muted small">not scored</span>
+          )}
+        </td>
         <td>{c.country || "—"}</td>
         <td>{daysAgo(c.lastActive)}</td>
         <td>{score2(c.qms)}</td>
@@ -516,6 +587,13 @@ function FoundRow({ c, open, onToggle, checked, onCheck }: { c: Found; open: boo
                 </div>
               </div>
             )}
+            <div className="actions">
+              <button onClick={onDive} disabled={diving || !canDive}>
+                {diving ? "Reading the résumé…" : c.result?.deepReview ? "Redo deep dive" : "Deep dive with full résumé"}
+              </button>
+              {!c.hasResume && <span className="muted small">No résumé on file: the deep dive will use the profile only.</span>}
+            </div>
+            {c.result?.deepReview && <div className="pre review">{c.result.deepReview}</div>}
             <p className="small">
               <strong>Team:</strong> {c.team || "—"}
               <br />
@@ -663,6 +741,14 @@ function PipelineRow({ r, open, onToggle, summary, actions }: { r: Row; open: bo
         <tr className="details">
           <td colSpan={5}>
             {r.score && <p className="small">{r.score.summary}</p>}
+            {r.score?.deepReview && (
+              <details className="small">
+                <summary>
+                  <strong>Résumé deep dive and interview questions</strong>
+                </summary>
+                <div className="pre review">{r.score.deepReview}</div>
+              </details>
+            )}
             {s ? (
               <div className="grid">
                 <div>
