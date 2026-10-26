@@ -33,7 +33,8 @@ async function load(code: string): Promise<{ view: BookingView } | { context: Co
   const interview = await findInterviewByCode(await codeHash(code));
   if (!interview) return { view: { state: "invalid" } };
   const ramp = interview.rampId ? await getRamp(interview.rampId) : null;
-  const role = interview.jobId ? (await getJob(interview.jobId)).name : "";
+  // The ramp's Job Title is what candidates should see; job names in Airtable start with "JD …".
+  const role = ramp?.jobTitle || (interview.jobId ? (await getJob(interview.jobId)).name : "");
   if (interview.status === "Scheduled") {
     return {
       view: {
