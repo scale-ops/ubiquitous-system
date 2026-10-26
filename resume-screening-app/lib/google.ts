@@ -163,28 +163,62 @@ function mimeHeader(value: string): string {
   return /^[\x20-\x7e]*$/.test(value) ? value : `=?UTF-8?B?${Buffer.from(value).toString("base64")}?=`;
 }
 
-export async function sendEmail(input: { to: string; subject: string; text: string; html?: string }): Promise<{ id: string }> {
+export type EmailAttachment = { filename: string; mimeType: string; base64: string };
+
+// Base64 wrapped at 76 characters, as email expects.
+function wrap76(b64: string): string {
+  return b64.replace(/(.{76})/g, "$1\r\n");
+}
+
+export async function sendEmail(input: {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  attachments?: EmailAttachment[];
+}): Promise<{ id: string }> {
   if (testMode()) {
-    console.log(`[test mode] would email 1 recipient: "${input.subject}"`);
+    console.log(`[test mode] would email 1 recipient: "${input.subject}" (${input.attachments?.length ?? 0} attachment(s))`);
     return { id: "test-message" };
   }
-  const boundary = `b_${crypto.randomUUID()}`;
-  const lines = [
-    `From: ${mimeHeader("Scale Recruiting")} <${sharedMailbox()}>`,
-    `To: ${input.to}`,
-    `Subject: ${mimeHeader(input.subject)}`,
-    "MIME-Version: 1.0",
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
-    "",
-    `--${boundary}`,
+  const alt = `alt_${crypto.randomUUID()}`;
+  const mixed = `mix_${crypto.randomUUID()}`;
+  const body = [
+    `--${alt}`,
     'Content-Type: text/plain; charset="UTF-8"',
     "Content-Transfer-Encoding: base64",
     "",
-    Buffer.from(input.text).toString("base64"),
+    wrap76(Buffer.from(input.text).toString("base64")),
     ...(input.html
-      ? [`--${boundary}`, 'Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: base64", "", Buffer.from(input.html).toString("base64")]
+      ? [`--${alt}`, 'Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: base64", "", wrap76(Buffer.from(input.html).toString("base64"))]
       : []),
-    `--${boundary}--`,
+    `--${alt}--`,
+  ];
+  const attachments = input.attachments ?? [];
+  const lines = [
+    `From: ${mimeHeader("Contractor Operations")} <${sharedMailbox()}>`,
+    `To: ${input.to}`,
+    `Subject: ${mimeHeader(input.subject)}`,
+    "MIME-Version: 1.0",
+    ...(attachments.length
+      ? [
+          `Content-Type: multipart/mixed; boundary="${mixed}"`,
+          "",
+          `--${mixed}`,
+          `Content-Type: multipart/alternative; boundary="${alt}"`,
+          "",
+          ...body,
+          ...attachments.flatMap((a) => [
+            `--${mixed}`,
+            `Content-Type: ${a.mimeType}; name="${mimeHeader(a.filename)}"`,
+            `Content-Disposition: attachment; filename="${mimeHeader(a.filename)}"`,
+            "Content-Transfer-Encoding: base64",
+            "",
+            wrap76(a.base64),
+          ]),
+          `--${mixed}--`,
+        ]
+      : [`Content-Type: multipart/alternative; boundary="${alt}"`, "", ...body]),
   ];
   const raw = Buffer.from(lines.join("\r\n")).toString("base64url");
   return google<{ id: string }>(`${GMAIL}/users/me/messages/send`, { method: "POST", body: JSON.stringify({ raw }) });

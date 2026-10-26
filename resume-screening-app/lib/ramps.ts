@@ -78,6 +78,12 @@ export function validateRamp(body: Record<string, unknown>, activeIds: Set<strin
     out.timeZone = tz;
   }
   if (!partial || has("notes")) out.notes = String(body.notes ?? "").slice(0, 5000);
+  if (!partial || has("jobTitle")) out.jobTitle = String(body.jobTitle ?? "").trim().slice(0, 120);
+  if (!partial || has("applicationDeadline")) {
+    const v = String(body.applicationDeadline ?? "").trim();
+    if (v && !DATE.test(v)) throw new Error("Dates must look like 2026-10-25.");
+    out.applicationDeadline = v;
+  }
   return out;
 }
 

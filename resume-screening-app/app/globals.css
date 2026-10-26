@@ -70,3 +70,12 @@ main.book .times button:hover { border-color: #2563eb; color: #2563eb; }
 main.book .zone { flex-direction: row; align-items: center; gap: 10px; font-weight: 400; margin: 8px 0; }
 main.book .zone select { min-width: 0; }
 main.book .confirm { background: #f9fafb; border-radius: 8px; padding: 12px 16px; margin-top: 12px; }
+.tabs { margin: 8px 0; }
+.rampinfo { display: flex; flex-direction: column; gap: 4px; }
+.modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; z-index: 10; overflow-y: auto; }
+.modal .card { max-width: 680px; width: 100%; }
+ul.checks { list-style: none; padding-left: 0; margin: 0; }
+ul.checks li { margin: 2px 0; }
+ul.checks li.fail { color: #b42318; }
+ul.checks li.warn { color: #854d0e; }
+ul.checks li.pass { color: #166534; }

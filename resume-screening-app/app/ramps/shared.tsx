@@ -18,6 +18,8 @@ export type Ramp = {
   maxPerDay: number | null;
   createdBy: string;
   notes: string;
+  jobTitle: string;
+  applicationDeadline: string;
 };
 
 export const TIME_ZONES = [
@@ -63,6 +65,8 @@ export type RampForm = {
   interviewerIds: string[];
   status: Ramp["status"];
   notes: string;
+  jobTitle: string;
+  applicationDeadline: string;
 };
 
 export function formFromRamp(r?: Ramp): RampForm {
@@ -78,6 +82,8 @@ export function formFromRamp(r?: Ramp): RampForm {
     interviewerIds: r?.interviewerIds ?? [],
     status: r?.status ?? "Planning",
     notes: r?.notes ?? "",
+    jobTitle: r?.jobTitle ?? "",
+    applicationDeadline: r?.applicationDeadline ?? "",
   };
 }
 
@@ -104,6 +110,16 @@ export function RampFields({
         Ramp name
         <input value={form.name} onChange={set("name")} placeholder="QA Aether Ramp 10.25.2026" />
       </label>
+      <div className="controls">
+        <label>
+          Job title candidates see
+          <input value={form.jobTitle} onChange={set("jobTitle")} placeholder="QA Reviewer" />
+        </label>
+        <label>
+          Application deadline
+          <input type="date" value={form.applicationDeadline} onChange={set("applicationDeadline")} />
+        </label>
+      </div>
       <div className="controls">
         <label>
           Job (optional)
@@ -159,6 +175,8 @@ export function RampFields({
         </label>
       </div>
       <p className="muted small">
+        The pre-interview and invite email texts and the eligibility rules are edited in the Ramps table in Airtable.
+        <br />
         Empty fields use the defaults: Monday–Friday, 9:00–17:00 Central, from tomorrow to 14 days ahead.
       </p>
       <fieldset>

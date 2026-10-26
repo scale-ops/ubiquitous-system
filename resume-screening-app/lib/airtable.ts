@@ -209,7 +209,17 @@ export async function upcomingInterviews(): Promise<UpcomingInterview[]> {
 
 // ---- Interviews ----
 
-export type InterviewStatus = "Invite drafted" | "Invite sent" | "Scheduled" | "Completed" | "No-show" | "Cancelled" | "Link expired";
+export type InterviewStatus =
+  | "Pre-interview sent"
+  | "Pre-interview received"
+  | "Not selected"
+  | "Invite drafted"
+  | "Invite sent"
+  | "Scheduled"
+  | "Completed"
+  | "No-show"
+  | "Cancelled"
+  | "Link expired";
 
 export type Interview = {
   id: string;
@@ -217,6 +227,7 @@ export type Interview = {
   candidateName: string;
   candidateEmail: string;
   workerId: string;
+  candidateId: string | null;
   jobId: string | null;
   rampId: string | null;
   offeredIds: string[];
@@ -237,6 +248,7 @@ function toInterview(record: AirtableRecord): Interview {
     candidateName: text(f["Candidate Name"]),
     candidateEmail: text(f["Candidate Email"]).toLowerCase(),
     workerId: text(f["Worker ID"]),
+    candidateId: first(f.Candidate),
     jobId: first(f.Job),
     rampId: first(f.Ramp),
     offeredIds: (f["Interviewers Offered"] as string[] | undefined) ?? [],
@@ -303,6 +315,20 @@ export type Ramp = {
   maxPerDay: number | null;
   createdBy: string;
   notes: string;
+  jobTitle: string;
+  applicationDeadline: string;
+};
+
+// Settings edited in Airtable for now (email templates, eligibility rules).
+export type RampEmailSettings = {
+  preSubject: string;
+  preBody: string;
+  inviteSubject: string;
+  inviteBody: string;
+  minWeeklyHours: number | null;
+  weekendsRequired: boolean;
+  eightHourRequired: boolean;
+  minEnglish: string;
 };
 
 export type RampInput = Omit<Ramp, "id" | "createdBy">;
@@ -328,6 +354,22 @@ function toRamp(record: AirtableRecord): Ramp {
     maxPerDay: num(f["Max Per Interviewer Per Day"]),
     createdBy: text(f["Created By"]),
     notes: text(f.Notes),
+    jobTitle: text(f["Job Title"]),
+    applicationDeadline: text(f["Application Deadline"]),
+  };
+}
+
+export async function getRampEmailSettings(id: string): Promise<RampEmailSettings> {
+  const f = (await getRecord(RAMPS_TABLE, id)).fields;
+  return {
+    preSubject: text(f["Pre-interview Email Subject"]),
+    preBody: typeof f["Pre-interview Email"] === "string" ? (f["Pre-interview Email"] as string) : "",
+    inviteSubject: text(f["Interview Invite Subject"]),
+    inviteBody: typeof f["Interview Invite Email"] === "string" ? (f["Interview Invite Email"] as string) : "",
+    minWeeklyHours: num(f["Min Weekly Hours"]),
+    weekendsRequired: f["Weekends Required"] === true,
+    eightHourRequired: f["8-Hour Shifts Required"] === true,
+    minEnglish: text(f["Min English Level"]),
   };
 }
 
@@ -344,6 +386,8 @@ function rampFields(input: Partial<RampInput>): Record<string, unknown> {
   if (input.timeZone !== undefined) fields["Time Zone"] = input.timeZone;
   if (input.maxPerDay !== undefined) fields["Max Per Interviewer Per Day"] = input.maxPerDay;
   if (input.notes !== undefined) fields.Notes = input.notes;
+  if (input.jobTitle !== undefined) fields["Job Title"] = input.jobTitle;
+  if (input.applicationDeadline !== undefined) fields["Application Deadline"] = input.applicationDeadline || null;
   return fields;
 }
 
@@ -395,4 +439,311 @@ export function isAirtableFile(url: string): boolean {
 // True when a candidate has profile text to score from (BDR/WPC); Select CBs only have a resume.
 export function hasProfileText(c: Candidate): boolean {
   return Boolean(c.jobTitle || c.company || c.experience || c.education || c.skills || c.projects);
+}
+
+// ---- Candidate Pool (the screener's source) ----
+
+export const POOL_TABLE = "tblLe5hlGq09KlQCu";
+const POOL_FIELDS = [
+  "WORKER_ID", "FIRST_NAME", "LAST_NAME", "EMAIL", "IP_COUNTRY_CODE", "WORKER_TEAM_NAME", "WORKER_SOURCE",
+  "JOB_TITLE", "JOB_COMPANY", "JOB_EXPERIENCE", "EDUCATION", "HIGHEST_DEGREE", "WORKERSKILLS", "PROJECTS",
+  "LAST_ACTIVE", "QMS_SCORE", "QC_SCORE", "Resume Status",
+];
+
+export type PoolCandidate = Candidate & {
+  workerId: string;
+  firstName: string;
+  team: string;
+  lastActive: string;
+  qms: number | null;
+  qc: number | null;
+  hasResume: boolean;
+};
+
+function toPoolCandidate(record: AirtableRecord): PoolCandidate {
+  const f = record.fields;
+  const resumeStatus = text(f["Resume Status"]);
+  return {
+    id: record.id,
+    workerId: text(f.WORKER_ID),
+    firstName: text(f.FIRST_NAME),
+    name: [text(f.FIRST_NAME), text(f.LAST_NAME)].filter(Boolean).join(" ") || text(f.WORKER_ID),
+    email: text(f.EMAIL).toLowerCase(),
+    country: text(f.IP_COUNTRY_CODE),
+    team: text(f.WORKER_TEAM_NAME),
+    jobTitle: text(f.JOB_TITLE),
+    company: text(f.JOB_COMPANY),
+    experience: text(f.JOB_EXPERIENCE),
+    education: [text(f.EDUCATION), text(f.HIGHEST_DEGREE)].filter(Boolean).join(" · "),
+    skills: text(f.WORKERSKILLS),
+    projects: text(f.PROJECTS).slice(0, 4000),
+    resumeUrl: null,
+    subtitle: text(f.WORKER_TEAM_NAME),
+    lastActive: text(f.LAST_ACTIVE),
+    qms: num(f.QMS_SCORE),
+    qc: num(f.QC_SCORE),
+    hasResume: resumeStatus === "ok" || resumeStatus === "resolved",
+  };
+}
+
+export type PoolFilters = { countries: string[]; activeDays: number | null; hasResume: boolean; minQms: number | null; minQc: number | null };
+
+function quote(value: string): string {
+  return `'${value.replace(/['\\]/g, "")}'`;
+}
+
+// Candidates matching the filters, up to `limit` (plus whether there were more).
+export async function searchPool(filters: PoolFilters, limit: number): Promise<{ candidates: PoolCandidate[]; more: boolean }> {
+  const parts: string[] = [];
+  const countries = filters.countries.filter((c) => /^[A-Z]{2}$/.test(c));
+  if (countries.length) parts.push(`OR(${countries.map((c) => `{IP_COUNTRY_CODE}=${quote(c)}`).join(",")})`);
+  if (filters.activeDays) parts.push(`IS_AFTER({LAST_ACTIVE}, DATEADD(NOW(), -${Math.floor(filters.activeDays)}, 'days'))`);
+  if (filters.hasResume) parts.push(`OR({Resume Status}='ok', {Resume Status}='resolved')`);
+  if (filters.minQms != null) parts.push(`{QMS_SCORE}>=${Number(filters.minQms)}`);
+  if (filters.minQc != null) parts.push(`{QC_SCORE}>=${Number(filters.minQc)}`);
+  const formula = parts.length ? `AND(${parts.join(",")})` : "TRUE()";
+  const out: PoolCandidate[] = [];
+  let offset: string | undefined;
+  do {
+    const params = new URLSearchParams({ filterByFormula: formula, pageSize: "100" });
+    for (const f of POOL_FIELDS) params.append("fields[]", f);
+    params.append("sort[0][field]", "LAST_ACTIVE");
+    params.append("sort[0][direction]", "desc");
+    if (offset) params.set("offset", offset);
+    const res = await airtableFetch(`${POOL_TABLE}?${params}`);
+    const data = (await res.json()) as { records: AirtableRecord[]; offset?: string };
+    out.push(...data.records.map(toPoolCandidate));
+    offset = data.offset;
+  } while (offset && out.length <= limit);
+  return { candidates: out.slice(0, limit), more: out.length > limit || Boolean(offset) };
+}
+
+// Fresh candidate records by Airtable id (at most 50 at a time).
+export async function getPoolCandidates(ids: string[]): Promise<PoolCandidate[]> {
+  const clean = ids.filter((id) => /^rec[A-Za-z0-9]{14}$/.test(id)).slice(0, 50);
+  if (!clean.length) return [];
+  const params = new URLSearchParams({ filterByFormula: `OR(${clean.map((id) => `RECORD_ID()='${id}'`).join(",")})`, pageSize: "100" });
+  for (const f of POOL_FIELDS) params.append("fields[]", f);
+  const res = await airtableFetch(`${POOL_TABLE}?${params}`);
+  return ((await res.json()) as { records: AirtableRecord[] }).records.map(toPoolCandidate);
+}
+
+// Rows linked to a ramp, found by the ramp's name in the link field.
+async function listLinkedToRamp(table: string, rampName: string, fields: string[]): Promise<AirtableRecord[]> {
+  const records: AirtableRecord[] = [];
+  let offset: string | undefined;
+  do {
+    const params = new URLSearchParams({ filterByFormula: `FIND(${quote(rampName)}, ARRAYJOIN({Ramp}, '|'))`, pageSize: "100" });
+    for (const f of fields) params.append("fields[]", f);
+    if (offset) params.set("offset", offset);
+    const res = await airtableFetch(`${table}?${params}`);
+    const data = (await res.json()) as { records: AirtableRecord[]; offset?: string };
+    records.push(...data.records);
+    offset = data.offset;
+  } while (offset);
+  return records;
+}
+
+// ---- Screening Results ----
+
+export const RESULTS_TABLE = "tblIm6ybRQTlmqHWN";
+
+export type ScreeningResult = {
+  id: string;
+  workerId: string;
+  score: number;
+  verdict: "Strong fit" | "Possible fit" | "Weak fit";
+  summary: string;
+  strengths: string[];
+  gaps: string[];
+  scoredAt: string;
+};
+
+export async function listResults(ramp: Ramp): Promise<ScreeningResult[]> {
+  const records = await listLinkedToRamp(RESULTS_TABLE, ramp.name, ["Ramp", "Worker ID", "Fit Score", "Verdict", "Summary", "Strengths", "Gaps", "Scored At"]);
+  const lines = (v: unknown) => text(v).split("\n").map((l) => l.replace(/^[-•]\s*/, "").trim()).filter(Boolean);
+  return records
+    .filter((r) => ((r.fields.Ramp as string[] | undefined) ?? []).includes(ramp.id))
+    .map((r) => ({
+      id: r.id,
+      workerId: text(r.fields["Worker ID"]),
+      score: num(r.fields["Fit Score"]) ?? 0,
+      verdict: (text(r.fields.Verdict) || "Weak fit") as ScreeningResult["verdict"],
+      summary: text(r.fields.Summary),
+      strengths: lines(r.fields.Strengths),
+      gaps: lines(r.fields.Gaps),
+      scoredAt: text(r.fields["Scored At"]),
+    }));
+}
+
+export async function saveResults(
+  ramp: Ramp,
+  rows: { candidate: PoolCandidate; score: number; verdict: string; summary: string; strengths: string[]; gaps: string[] }[],
+  scoredBy: string,
+  model: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  for (let i = 0; i < rows.length; i += 10) {
+    await airtableFetch(RESULTS_TABLE, {
+      method: "POST",
+      body: {
+        typecast: true,
+        records: rows.slice(i, i + 10).map((r) => ({
+          fields: {
+            Candidate: [r.candidate.id],
+            Ramp: [ramp.id],
+            "Worker ID": r.candidate.workerId,
+            "Fit Score": r.score,
+            Verdict: r.verdict,
+            Summary: r.summary,
+            Strengths: r.strengths.map((s) => `- ${s}`).join("\n"),
+            Gaps: r.gaps.map((s) => `- ${s}`).join("\n"),
+            "Scored At": now,
+            "Scored By": scoredBy.includes("@") ? scoredBy : null,
+            Model: model,
+          },
+        })),
+      },
+    });
+  }
+}
+
+// ---- Journeys (Interviews rows) for a ramp ----
+
+export type Journey = Interview & { preInterviewSentAt: string; lastEmailSent: string };
+
+export async function listJourneys(ramp: Ramp): Promise<Journey[]> {
+  const records = await listLinkedToRamp(INTERVIEWS_TABLE, ramp.name, [
+    "Ramp", "Status", "Candidate", "Candidate Name", "Candidate Email", "Worker ID", "Job", "Interviewers Offered",
+    "Interviewer", "Start", "End", "Meet Link", "Calendar Event ID", "Link Expires", "Pre-Interview Sent At", "Last Email Sent",
+  ]);
+  return records
+    .filter((r) => ((r.fields.Ramp as string[] | undefined) ?? []).includes(ramp.id))
+    .map((r) => ({ ...toInterview(r), preInterviewSentAt: text(r.fields["Pre-Interview Sent At"]), lastEmailSent: text(r.fields["Last Email Sent"]) }));
+}
+
+export async function createJourney(input: {
+  ramp: Ramp;
+  candidate: PoolCandidate;
+  createdBy: string;
+}): Promise<string> {
+  const now = new Date().toISOString();
+  const res = await airtableFetch(INTERVIEWS_TABLE, {
+    method: "POST",
+    body: {
+      fields: {
+        Candidate: [input.candidate.id],
+        "Worker ID": input.candidate.workerId,
+        "Candidate Name": input.candidate.name,
+        "Candidate Email": input.candidate.email,
+        ...(input.ramp.jobId ? { Job: [input.ramp.jobId] } : {}),
+        Ramp: [input.ramp.id],
+        Status: "Pre-interview sent",
+        "Pre-Interview Sent At": now,
+        "Last Email Sent": "Pre-interview",
+        "Last Email Sent At": now,
+        ...(input.createdBy.includes("@") ? { "Created By": input.createdBy } : {}),
+      },
+    },
+  });
+  return ((await res.json()) as AirtableRecord).id;
+}
+
+export async function updateJourney(id: string, fields: Record<string, unknown>): Promise<void> {
+  await airtableFetch(`${INTERVIEWS_TABLE}/${encodeURIComponent(id)}`, { method: "PATCH", body: { typecast: true, fields } });
+}
+
+// ---- Pre-Interview submissions ----
+
+export const PRE_INTERVIEW_TABLE = "tblBtTtfY5CG33ROb";
+// Government ID is deliberately never read by the hub; only whether it was given.
+const SUBMISSION_FIELDS = [
+  "Submission #", "Clean Email", "Full Name", "Country of Residence", "Other Country", "State (US)", "Work Authorization",
+  "English Proficiency", "8-Hour Shifts", "Days Available", "Weekly Hours", "Highest Degree", "Earliest Start Date",
+  "Ack: Contract Duration", "Referred By", "LinkedIn Profile", "Candidate", "Interview", "Candidate Status", "Created",
+  "Has Government ID",
+];
+
+export type Submission = {
+  id: string;
+  number: number;
+  email: string;
+  fullName: string;
+  country: string;
+  otherCountry: string;
+  state: string;
+  workAuthorization: string;
+  english: string;
+  eightHour: string;
+  days: string[];
+  weeklyHours: number | null;
+  degree: string;
+  startDate: string;
+  ackContract: boolean;
+  referredBy: string;
+  linkedin: string;
+  candidateIds: string[];
+  interviewIds: string[];
+  status: string;
+  created: string;
+  hasGovernmentId: boolean;
+};
+
+function toSubmission(r: AirtableRecord): Submission {
+  const f = r.fields;
+  return {
+    id: r.id,
+    number: num(f["Submission #"]) ?? 0,
+    email: text(f["Clean Email"]),
+    fullName: text(f["Full Name"]),
+    country: text(f["Country of Residence"]),
+    otherCountry: text(f["Other Country"]),
+    state: text(f["State (US)"]),
+    workAuthorization: text(f["Work Authorization"]),
+    english: text(f["English Proficiency"]),
+    eightHour: text(f["8-Hour Shifts"]),
+    days: ((f["Days Available"] as unknown[] | undefined) ?? []).map(text),
+    weeklyHours: num(f["Weekly Hours"]),
+    degree: text(f["Highest Degree"]),
+    startDate: text(f["Earliest Start Date"]),
+    ackContract: f["Ack: Contract Duration"] === true,
+    referredBy: text(f["Referred By"]),
+    linkedin: text(f["LinkedIn Profile"]),
+    candidateIds: (f.Candidate as string[] | undefined) ?? [],
+    interviewIds: (f.Interview as string[] | undefined) ?? [],
+    status: text(f["Candidate Status"]),
+    created: text(f.Created),
+    hasGovernmentId: f["Has Government ID"] === 1 || f["Has Government ID"] === true,
+  };
+}
+
+// All submissions from these email addresses (lowercased), oldest first.
+export async function submissionsByEmail(emails: string[]): Promise<Submission[]> {
+  const unique = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter((e) => /^[^\s@'"\\]+@[^\s@'"\\]+$/.test(e)))];
+  const out: Submission[] = [];
+  for (let i = 0; i < unique.length; i += 40) {
+    const batch = unique.slice(i, i + 40);
+    const params = new URLSearchParams({ filterByFormula: `OR(${batch.map((e) => `{Clean Email}=${quote(e)}`).join(",")})`, pageSize: "100" });
+    for (const f of SUBMISSION_FIELDS) params.append("fields[]", f);
+    params.append("sort[0][field]", "Submission #");
+    const res = await airtableFetch(`${PRE_INTERVIEW_TABLE}?${params}`);
+    out.push(...((await res.json()) as { records: AirtableRecord[] }).records.map(toSubmission));
+  }
+  return out;
+}
+
+export async function updateSubmission(id: string, fields: Record<string, unknown>): Promise<void> {
+  await airtableFetch(`${PRE_INTERVIEW_TABLE}/${encodeURIComponent(id)}`, { method: "PATCH", body: { typecast: true, fields } });
+}
+
+// The job description PDF for attaching to emails: fresh link, then the bytes.
+export async function jobAttachment(jobId: string): Promise<{ filename: string; mimeType: string; base64: string } | null> {
+  const f = (await getRecord(JOBS_TABLE, jobId)).fields;
+  const file = ((f["JD Attachment"] as Attachment[] | undefined) ?? [])[0];
+  if (!file?.url) return null;
+  const res = await fetch(file.url, { cache: "no-store" });
+  if (!res.ok) return null;
+  const bytes = Buffer.from(await res.arrayBuffer());
+  if (bytes.length > 15 * 1024 * 1024) return null;
+  return { filename: file.filename || "Job description.pdf", mimeType: file.type || "application/pdf", base64: bytes.toString("base64") };
 }
