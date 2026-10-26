@@ -43,6 +43,8 @@ tr.details td { background: #fcfcfd; }
 .grid ul { margin: 0; padding-left: 18px; }
 .actions { display: flex; gap: 10px; margin: 8px 0; }
 .badge.risk { background: #fee2e2; color: #991b1b; }
+/* Marks a candidate who has had a full résumé deep dive; solid so it stands out under the score. */
+.badge.dive { background: #16a34a; color: #fff; font-size: 12px; padding: 2px 8px; margin-top: 4px; }
 .flags { margin: 4px 0 8px; padding-left: 18px; color: #b42318; font-size: 13px; }
 .chips.small .chip { padding: 4px 10px; font-size: 13px; }
 span.chip { border: 1px solid #d1d5db; background: #fff; }
