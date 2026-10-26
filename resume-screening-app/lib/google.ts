@@ -69,8 +69,27 @@ const FREEBUSY_ERRORS: Record<string, string> = {
   internalError: "Google couldn't read this calendar right now",
 };
 
+const MAX_RANGE_MS = 30 * 86_400_000;
+
 // Busy times for each email's primary calendar between two instants (ISO strings).
+// Long ranges are asked for in 30-day pieces and joined back together.
 export async function freeBusy(emails: string[], timeMin: string, timeMax: string): Promise<FreeBusyResult[]> {
+  const start = Date.parse(timeMin);
+  const end = Date.parse(timeMax);
+  if (end - start <= MAX_RANGE_MS) return freeBusyOnce(emails, timeMin, timeMax);
+  const merged = new Map(emails.map((email) => [email, { email, busy: [] as Busy[], error: undefined as string | undefined }]));
+  for (let from = start; from < end; from += MAX_RANGE_MS) {
+    const to = Math.min(from + MAX_RANGE_MS, end);
+    for (const r of await freeBusyOnce(emails, new Date(from).toISOString(), new Date(to).toISOString())) {
+      const m = merged.get(r.email)!;
+      m.busy.push(...r.busy);
+      m.error ??= r.error;
+    }
+  }
+  return [...merged.values()].map((m) => (m.error ? m : { email: m.email, busy: m.busy }));
+}
+
+async function freeBusyOnce(emails: string[], timeMin: string, timeMax: string): Promise<FreeBusyResult[]> {
   if (testMode()) return emails.map((email) => ({ email, busy: fakeBusy(email, timeMin, timeMax) }));
   const results: FreeBusyResult[] = [];
   // Google allows up to 50 calendars per request.

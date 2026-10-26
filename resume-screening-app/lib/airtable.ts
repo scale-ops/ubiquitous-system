@@ -44,13 +44,22 @@ function env(name: string): string {
   return value;
 }
 
-async function airtableFetch(path: string): Promise<Response> {
+async function airtableFetch(path: string, init: { method?: string; body?: unknown } = {}): Promise<Response> {
   const res = await fetch(`${API}/${env("AIRTABLE_BASE_ID")}/${path}`, {
-    headers: { Authorization: `Bearer ${env("AIRTABLE_TOKEN")}` },
+    method: init.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${env("AIRTABLE_TOKEN")}`,
+      ...(init.body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new Error(`Airtable error ${res.status}: ${await res.text()}`);
+    const detail = await res.text();
+    if (res.status === 403 && init.method && init.method !== "GET") {
+      throw new Error("Airtable refused to save: the AIRTABLE_TOKEN can only read. Add a token with data.records:write.");
+    }
+    throw new Error(`Airtable error ${res.status}: ${detail}`);
   }
   return res;
 }
@@ -167,6 +176,123 @@ export async function listActiveWorkforceManagers(): Promise<TeamMember[]> {
       role: text(r.fields.Roll),
     }))
     .filter((m) => m.email.includes("@"));
+}
+
+export const INTERVIEWS_TABLE = "tblzBwlRtIvzXWpws";
+
+export type UpcomingInterview = { interviewerIds: string[]; start: Date; bookedAt: number };
+
+// Scheduled interviews still ahead: used for fair sharing and for ramps' daily limits.
+export async function upcomingInterviews(): Promise<UpcomingInterview[]> {
+  const out: UpcomingInterview[] = [];
+  let offset: string | undefined;
+  do {
+    const params = new URLSearchParams({
+      filterByFormula: "AND({Status}='Scheduled', IS_AFTER({Start}, NOW()))",
+      pageSize: "100",
+    });
+    for (const f of ["Interviewer", "Start", "Booked At"]) params.append("fields[]", f);
+    if (offset) params.set("offset", offset);
+    const res = await airtableFetch(`${INTERVIEWS_TABLE}?${params}`);
+    const data = (await res.json()) as { records: AirtableRecord[]; offset?: string };
+    for (const r of data.records) {
+      out.push({
+        interviewerIds: (r.fields.Interviewer as string[] | undefined) ?? [],
+        start: new Date(text(r.fields.Start)),
+        bookedAt: Date.parse(text(r.fields["Booked At"])) || 0,
+      });
+    }
+    offset = data.offset;
+  } while (offset);
+  return out;
+}
+
+// ---- Ramps ----
+
+export const RAMPS_TABLE = "tblZlesc5Tg4OvVJJ";
+export const RAMP_STATUSES = ["Planning", "Open", "Closed"] as const;
+export type RampStatus = (typeof RAMP_STATUSES)[number];
+
+export type Ramp = {
+  id: string;
+  name: string;
+  jobId: string | null;
+  interviewerIds: string[];
+  status: RampStatus;
+  startDate: string;
+  endDate: string;
+  hoursStart: number | null;
+  hoursEnd: number | null;
+  timeZone: string;
+  maxPerDay: number | null;
+  createdBy: string;
+  notes: string;
+};
+
+export type RampInput = Omit<Ramp, "id" | "createdBy">;
+
+function num(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
+}
+
+function toRamp(record: AirtableRecord): Ramp {
+  const f = record.fields;
+  const status = text(f.Status) as RampStatus;
+  return {
+    id: record.id,
+    name: text(f["Ramp Name"]) || "Untitled ramp",
+    jobId: ((f.Job as string[] | undefined) ?? [])[0] ?? null,
+    interviewerIds: (f.Interviewers as string[] | undefined) ?? [],
+    status: RAMP_STATUSES.includes(status) ? status : "Planning",
+    startDate: text(f["Start Date"]),
+    endDate: text(f["End Date"]),
+    hoursStart: num(f["Booking Hours Start"]),
+    hoursEnd: num(f["Booking Hours End"]),
+    timeZone: text(f["Time Zone"]),
+    maxPerDay: num(f["Max Per Interviewer Per Day"]),
+    createdBy: text(f["Created By"]),
+    notes: text(f.Notes),
+  };
+}
+
+function rampFields(input: Partial<RampInput>): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  if (input.name !== undefined) fields["Ramp Name"] = input.name;
+  if (input.jobId !== undefined) fields.Job = input.jobId ? [input.jobId] : [];
+  if (input.interviewerIds !== undefined) fields.Interviewers = input.interviewerIds;
+  if (input.status !== undefined) fields.Status = input.status;
+  if (input.startDate !== undefined) fields["Start Date"] = input.startDate || null;
+  if (input.endDate !== undefined) fields["End Date"] = input.endDate || null;
+  if (input.hoursStart !== undefined) fields["Booking Hours Start"] = input.hoursStart;
+  if (input.hoursEnd !== undefined) fields["Booking Hours End"] = input.hoursEnd;
+  if (input.timeZone !== undefined) fields["Time Zone"] = input.timeZone;
+  if (input.maxPerDay !== undefined) fields["Max Per Interviewer Per Day"] = input.maxPerDay;
+  if (input.notes !== undefined) fields.Notes = input.notes;
+  return fields;
+}
+
+export async function listRamps(): Promise<Ramp[]> {
+  return (await listAll(RAMPS_TABLE)).map(toRamp);
+}
+
+export async function getRamp(id: string): Promise<Ramp> {
+  return toRamp(await getRecord(RAMPS_TABLE, id));
+}
+
+export async function createRamp(input: RampInput, createdBy: string): Promise<Ramp> {
+  const res = await airtableFetch(RAMPS_TABLE, {
+    method: "POST",
+    body: { fields: { ...rampFields(input), "Created By": createdBy } },
+  });
+  return toRamp((await res.json()) as AirtableRecord);
+}
+
+export async function updateRamp(id: string, input: Partial<RampInput>): Promise<Ramp> {
+  const res = await airtableFetch(`${RAMPS_TABLE}/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: { fields: rampFields(input) },
+  });
+  return toRamp((await res.json()) as AirtableRecord);
 }
 
 // Downloads a PDF (job description or resume) and returns it base64-encoded for Claude.

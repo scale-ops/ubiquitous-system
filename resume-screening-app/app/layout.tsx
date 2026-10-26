@@ -17,6 +17,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body>
         {session && (
           <div className="userbar">
+            <nav>
+              <a href="/">Screening</a>
+              <a href="/ramps">Ramps</a>
+              <a href="/settings/google-check">Calendar check</a>
+            </nav>
             <span>{session.name || session.email}</span>
             <a href="/api/auth/signout">Sign out</a>
           </div>

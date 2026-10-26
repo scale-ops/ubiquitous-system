@@ -52,6 +52,13 @@ export async function unseal<T extends { exp: number }>(value: string | undefine
   }
 }
 
+// The signed-in person for a route handler or page, or null. With Google sign-in off (shared
+// password), there is no individual identity, so this returns a placeholder.
+export async function currentUser(cookieValue: string | undefined): Promise<Session | null> {
+  if (!googleSignInEnabled()) return { email: "shared-password-user", name: "", exp: Date.now() + 60_000 };
+  return unseal<Session>(cookieValue);
+}
+
 export function randomToken(bytes = 32): string {
   return base64url(crypto.getRandomValues(new Uint8Array(bytes)));
 }
