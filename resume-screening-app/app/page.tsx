@@ -560,7 +560,11 @@ function FoundRow(props: {
           ) : c.result ? (
             <>
               <span className={`badge ${badge(c.result.verdict)}`}>{c.result.score} · {c.result.verdict}</span>
-              {c.result.deepReview && <div className="muted small">deep dive ✓</div>}
+              {c.result.deepReview && (
+                <div>
+                  <span className="badge dive">Deep dive ✓</span>
+                </div>
+              )}
             </>
           ) : (
             <span className="muted small">not scored</span>
@@ -733,7 +737,14 @@ function PipelineRow({ r, open, onToggle, summary, actions }: { r: Row; open: bo
           <span className={`badge ${statusBadge(r.journey.status)}`}>{r.journey.status}</span>
           {r.journey.status === "Scheduled" && <div className="small">{when(r.journey.start)}</div>}
         </td>
-        <td>{r.score ? <span className={`badge ${badge(r.score.verdict)}`}>{r.score.score}</span> : "—"}</td>
+        <td>
+          {r.score ? <span className={`badge ${badge(r.score.verdict)}`}>{r.score.score}</span> : "—"}
+          {r.score?.deepReview && (
+            <div>
+              <span className="badge dive">Deep dive ✓</span>
+            </div>
+          )}
+        </td>
         <td className="small">{summary}</td>
         <td>{actions}</td>
       </tr>
